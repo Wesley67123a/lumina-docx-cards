@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lumina Docx Cards — 擬態半透明 .docx 雙欄閃卡工作台</title>
+    <meta
+      name="description"
+      content="上傳 .docx 筆記自動解析問題與答案，以問題與答案同時顯示的擬態半透明閃卡呈現，支援高斯模糊、懸浮儀表盤、微交互與連續曲率圓角。"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Organic Ambient Mesh Backdrop for Rich Backdrop Blur -->
+    <div class="ambient-canvas" aria-hidden="true">
+      <div class="ambient-orb orb-1"></div>
+      <div class="ambient-orb orb-2"></div>
+      <div class="ambient-orb orb-3"></div>
+      <div class="ambient-orb orb-4"></div>
+      <div class="ambient-noise"></div>
+    </div>
+
+    <!-- Global Drag-and-Drop Frosted Veil -->
+    <div id="global-drop-veil" class="global-drop-veil squircle-2xl" aria-hidden="true">
+      <div class="drop-veil-inner">
+        <div class="brand-emblem squircle-lg" style="margin: 0 auto; width: 64px; height: 64px">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </div>
+        <h3>放開以載入 .docx 問答筆記</h3>
+        <p>自動解析雙欄表格或 Q&amp;A 段落，問題與答案同時並排呈現</p>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast-pill" class="toast-pill squircle-md" role="status" aria-live="polite">
+      <span id="toast-text">已載入閃卡</span>
+    </div>
+
+    <div class="app-shell">
+      <!-- Floating Dashboard Header -->
+      <header id="floating-dashboard" class="floating-dashboard squircle-2xl">
+        <div class="dashboard-top-row">
+          <div class="brand-cluster">
+            <div class="brand-emblem squircle-md" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="4" />
+                <line x1="12" y1="4" x2="12" y2="20" />
+                <path d="M7 9h2" />
+                <path d="M7 13h2" />
+                <path d="M15 9h2" />
+                <path d="M15 13h2" />
+              </svg>
+            </div>
+            <div class="brand-titles">
+              <h1 id="deck-title">HKDSE BIOLOGY — Chapter 8: Transport in Humans</h1>
+              <p class="deck-subtitle">
+                <span id="deck-filename">HKDSE_Bio_Ch8_QA_Notes.docx</span>
+                <span>·</span>
+                <span>問題與答案同步顯示 (Side-by-Side Q&amp;A)</span>
+              </p>
+            </div>
+          </div>
+
+          <div class="dashboard-actions">
+            <!-- Mastery Progress Pill -->
+            <div class="stats-strip">
+              <div class="stat-pill squircle-sm" title="已掌握進度">
+                <span>掌握</span>
+                <strong id="stat-mastered">0 / 5</strong>
+                <div class="progress-track-mini">
+                  <div id="mastery-bar" class="progress-fill-mini" style="width: 0%"></div>
+                </div>
+              </div>
+              <div class="stat-pill squircle-sm hide-mobile" title="總分值">
+                <span>總分</span>
+                <strong id="stat-marks">11 marks</strong>
+              </div>
+            </div>
+
+            <!-- Upload .docx Trigger -->
+            <input
+              type="file"
+              id="docx-file-input"
+              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              hidden
+            />
+            <button id="btn-upload-docx" class="neu-btn primary squircle-md" type="button">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span>讀取 .docx</span>
+            </button>
+
+            <!-- Toggle Dropzone Drawer -->
+            <button
+              id="btn-toggle-drawer"
+              class="neu-btn neu-icon-btn squircle-md"
+              type="button"
+              title="展開/收合匯入與範本面板"
+              aria-label="展開或收合匯入面板"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="12" y1="18" x2="12" y2="12" />
+                <line x1="9" y1="15" x2="15" y2="15" />
+              </svg>
+            </button>
+
+            <!-- Theme Switcher -->
+            <button
+              id="btn-theme-toggle"
+              class="neu-btn neu-icon-btn squircle-md"
+              type="button"
+              title="切換淺色/深色半透明擬態主題"
+              aria-label="切換主題"
+            >
+              <svg id="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none">
+                <circle cx="12" cy="12" r="5" />
+                <line x1="12" y1="1" x2="12" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" />
+                <line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+              <svg id="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Second Row: View Switcher + Filter + Inset Search -->
+        <div class="dashboard-controls-row">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+            <!-- View Mode: All Cards Stream vs Focus Carousel -->
+            <div class="neu-segmented squircle-md" role="tablist" aria-label="檢視模式">
+              <button
+                id="mode-stream-btn"
+                class="neu-seg-btn active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <rect x="3" y="4" width="18" height="6" rx="2" />
+                  <rect x="3" y="14" width="18" height="6" rx="2" />
+                </svg>
+                <span>雙欄總覽</span>
+              </button>
+              <button
+                id="mode-focus-btn"
+                class="neu-seg-btn"
+                type="button"
+                role="tab"
+                aria-selected="false"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <rect x="2" y="5" width="20" height="14" rx="3" />
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                </svg>
+                <span>專注單卡</span>
+              </button>
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="neu-segmented squircle-md" role="tablist" aria-label="篩選閃卡">
+              <button id="filter-all" class="neu-seg-btn active" type="button" data-filter="all">
+                全部
+              </button>
+              <button id="filter-unmastered" class="neu-seg-btn" type="button" data-filter="unmastered">
+                待複習
+              </button>
+              <button id="filter-bookmarked" class="neu-seg-btn" type="button" data-filter="bookmarked">
+                星標
+              </button>
+            </div>
+          </div>
+
+          <!-- Neumorphic Inset Search Bar -->
+          <div class="search-well squircle-md">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="搜尋問題、答案要點或出處..."
+              autocomplete="off"
+            />
+            <button id="btn-clear-search" class="clear-search-btn" type="button" aria-label="清除搜尋">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Interactive .docx Dropzone & Sample Exporter Tray -->
+      <section id="dropzone-drawer" class="dropzone-drawer squircle-xl" aria-label="上傳 Word 檔案區">
+        <div class="dropzone-info">
+          <div class="dropzone-icon-well squircle-md">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <path d="M9 15l2 2 4-4" />
+            </svg>
+          </div>
+          <div class="dropzone-text">
+            <h2>拖曳任意 .docx 問答筆記至此，或點擊上傳</h2>
+            <p>
+              完美支援雙欄表格（左欄問題、右欄答案與給分點 <code>(1)</code>）及 <code>Q: / A:</code> 段落格式，純瀏覽器本地解析不外傳。
+            </p>
+          </div>
+        </div>
+        <div class="dropzone-buttons">
+          <button id="btn-download-sample-docx" class="neu-btn squircle-md" type="button">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>下載範例 .docx 測試</span>
+          </button>
+          <button id="btn-reset-sample" class="neu-btn squircle-md" type="button">
+            <span>載入預設生物科筆記</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Main Flashcard Stage (Question & Answer Simultaneous Display) -->
+      <main id="cards-stage" class="cards-stage mode-stream" aria-live="polite"></main>
+    </div>
+
+    <!-- Floating Bottom Dock -->
+    <nav id="floating-bottom-dock" class="floating-bottom-dock squircle-xl" aria-label="閃卡快捷控制列">
+      <button id="dock-prev-btn" class="neu-btn neu-icon-btn squircle-md" type="button" title="上一張 (←)" aria-label="上一張閃卡">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+
+      <div id="dock-counter" class="dock-counter squircle-sm">1 / 5</div>
+
+      <button id="dock-next-btn" class="neu-btn neu-icon-btn squircle-md" type="button" title="下一張 (→)" aria-label="下一張閃卡">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+
+      <div class="dock-divider" aria-hidden="true"></div>
+
+      <button id="dock-shuffle-btn" class="neu-btn squircle-md" type="button" title="隨機排列閃卡順序">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 3 21 3 21 8" />
+          <line x1="4" y1="20" x2="21" y2="3" />
+          <polyline points="21 16 21 21 16 21" />
+          <line x1="15" y1="15" x2="21" y2="21" />
+          <line x1="4" y1="4" x2="9" y2="9" />
+        </svg>
+        <span class="hide-mobile">隨機洗牌</span>
+      </button>
+
+      <button id="dock-checkall-btn" class="neu-btn squircle-md" type="button" title="重置所有給分點勾選狀態">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
+        </svg>
+        <span class="hide-mobile">重置勾選</span>
+      </button>
+
+      <span class="kbd-hint hide-mobile" title="鍵盤方向鍵快速切換">← / →</span>
+    </nav>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

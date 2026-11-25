@@ -1,0 +1,21 @@
+{
+  "name": "lumina-docx-cards",
+  "version": "1.0.0",
+  "description": "Neumorphic & Translucent Glassmorphic .docx Q&A Flashcard Studio with Simultaneous Question & Answer Display",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wesley67123a/lumina-docx-cards.git"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
