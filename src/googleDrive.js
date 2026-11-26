@@ -360,10 +360,19 @@ export class GoogleDriveClient {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
+    const text = await res.text();
     if (!res.ok) {
-      throw new Error(`Apps Script 連線失敗 (${res.status})`);
+      throw new Error(`Apps Script 連線失敗 (HTTP ${res.status})`);
     }
-    const data = await res.json();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (text.includes('accounts.google.com') || text.includes('ServiceLogin') || text.includes('<!DOCTYPE html>')) {
+        throw new Error('Apps Script 回傳了網頁而非資料，請確認部署設定「誰可以存取」已選「任何人」');
+      }
+      throw new Error('Apps Script 回傳格式異常，請確認網址為 /exec 結尾');
+    }
     if (data.error) throw new Error(data.error);
     return data;
   }
@@ -391,7 +400,10 @@ const STATE_FILE = 'lumina_flashcards_state.json';
 
 function getOrCreateFolder() {
   const it = DriveApp.getFoldersByName(FOLDER_NAME);
-  return it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER_NAME);
+  if (it.hasNext()) return it.next();
+  const itCap = DriveApp.getFoldersByName('Flashcard');
+  if (itCap.hasNext()) return itCap.next();
+  return DriveApp.createFolder(FOLDER_NAME);
 }
 
 function doPost(e) {
@@ -406,9 +418,10 @@ function doPost(e) {
       while (iter.hasNext() && files.length < 40) {
         const f = iter.next();
         const mime = f.getMimeType();
-        if (mime.includes('wordprocessingml') || mime === MimeType.GOOGLE_DOCS) {
+        const name = f.getName();
+        if (mime.includes('wordprocessingml') || mime === MimeType.GOOGLE_DOCS || name.toLowerCase().endsWith('.docx')) {
           files.push({
-            id: f.getId(), name: f.getName(), mimeType: mime,
+            id: f.getId(), name: name, mimeType: mime,
             modifiedTime: f.getLastUpdated().toISOString(), webViewLink: f.getUrl()
           });
         }

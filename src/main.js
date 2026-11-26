@@ -12,9 +12,11 @@ import {
   toLocalISO,
   addDaysISO,
 } from './sampleData.js';
-import { GoogleDriveClient, APPS_SCRIPT_TEMPLATE } from './googleDrive.js';
+import { GoogleDriveClient } from './googleDrive.js';
 
-const STORAGE_KEY = 'wesley-study-studio-v3';
+const META_STORAGE_KEY = 'wesley-study-meta-v4';
+const DOCS_PAGE_SIZE = 20;
+const FC_LIST_PAGE_SIZE = 20;
 
 const PALETTE_ACCENTS = {
   terracotta: '#D96F52',
@@ -26,75 +28,7 @@ const PALETTE_ACCENTS = {
 
 const BREAKDOWN_COLORS = ['#D96F52', '#D4A138', '#5C7F67', '#557CA5', '#7B61B8', '#0EA5E9'];
 
-const I18N = {
-  zh: {
-    navHome: 'Home 首頁',
-    navFlashcards: 'Flashcards 閃卡',
-    navDocs: 'Docs 原檔',
-    navDrive: 'Google Drive',
-    navSettings: '外觀與設定',
-    promoTitle: '今日隨機抽卡',
-    promoDesc: '從已收錄閃卡隨機組一組快篩複習',
-    promoCta: '🎲 立即隨機抽卡',
-    s9Btn: 'S9 壁紙',
-    openDocx: '開啟 .docx',
-    heroResume: '繼續複習閃卡',
-    heroRandom: '隨機抽題',
-    tileFcLabel: '已收錄閃卡',
-    tileStudyLabel: "Today's Study",
-    tileRandomLabel: '隨機 Flashcard 組',
-    tileRandomVal: '一鍵抽組',
-    tileDocsLabel: 'Docs 原檔章節',
-    chartTitle: '學習紀錄分佈',
-    breakdownTitle: '各 Chapter 收錄與掌握度',
-    randDeckTitle: '🎲 選 Flashcard · 隨機閃卡組產生器',
-    randDeckSub: '隨機挑一個章節，或自選範圍與張數抽出今日隨機練習卡組（問題與答案同步並排顯示）',
-    randDeckBtn: '隨機抽出卡組',
-    randChBtn: '隨機挑一章',
-    fcModeList: '雙欄總覽',
-    fcModeRandomQ: '🎲 隨機題目模式',
-    randNextBtn: '隨機抽一題 (R)',
-    docsChLabel: '章節排序目錄：',
-    writebackSort: '寫回原檔時依 Chapter 排序',
-    dropTitle: '放開以載入 .docx 問答筆記',
-    dropSub: '自動偵測 Chapter 編號排序，並保留原始排版與圖片以供回寫 Google Drive',
-  },
-  en: {
-    navHome: 'Home',
-    navFlashcards: 'Flashcards',
-    navDocs: 'Docs Editor',
-    navDrive: 'Google Drive',
-    navSettings: 'Appearance',
-    promoTitle: 'Quick Random Set',
-    promoDesc: 'Pull a fresh shuffled set from your saved cards',
-    promoCta: '🎲 Draw Random Set',
-    s9Btn: 'S9 Live',
-    openDocx: 'Open .docx',
-    heroResume: 'Resume Study',
-    heroRandom: 'Random Q',
-    tileFcLabel: 'Flashcards',
-    tileStudyLabel: "Today's Study",
-    tileRandomLabel: 'Random Flashcards',
-    tileRandomVal: 'Quick Shuffle',
-    tileDocsLabel: 'Docs Chapters',
-    chartTitle: 'Study Activity',
-    breakdownTitle: 'Chapter Mastery & Coverage',
-    randDeckTitle: '🎲 Random Flashcard Deck Builder',
-    randDeckSub: 'Pick a random chapter or draw a custom-sized random set (Q & A shown simultaneously)',
-    randDeckBtn: 'Build Random Set',
-    randChBtn: 'Random Chapter',
-    fcModeList: 'All Cards',
-    fcModeRandomQ: '🎲 Random Question',
-    randNextBtn: 'Next Random (R)',
-    docsChLabel: 'Sorted Chapters:',
-    writebackSort: 'Sort by Chapter on Drive writeback',
-    dropTitle: 'Drop .docx notes to import',
-    dropSub: 'Auto-sorts by Chapter and preserves original styles for Google Drive writeback',
-  },
-};
-
 const DEFAULT_APPEARANCE = {
-  lang: 'zh',
   palette: 'terracotta',
   customAccentHex: '#D96F52',
   sqRadius: 24,
@@ -108,116 +42,103 @@ const DEFAULT_APPEARANCE = {
 
 const driveClient = new GoogleDriveClient();
 let wallpaper = null;
-let rawDocxBuffer = null; // In-memory original .docx ArrayBuffer for lossless in-place XML patching!
+let rawDocxBuffer = null;
 let autoSyncTimer = null;
-let clockInterval = null;
 let toastTimer = null;
+let clockTimer = null;
+
+function loadMeta() {
+  try {
+    const raw = localStorage.getItem(META_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 function createInitialState() {
-  const saved = loadFromLocalStorage();
-  if (saved && saved.doc && Array.isArray(saved.doc.rows) && saved.doc.rows.length > 0) {
-    // Ensure chapter metadata exists on older saved rows
-    saved.doc.rows = saved.doc.rows.map((r, i) =>
-      r.chapterKey ? r : buildDocRow({ ...r, originalOrder: i })
-    );
-    return {
-      activeNav: 'home',
-      sidebarCollapsed: false,
-      chartMode: 'day', // 'day' | 'chapter'
-      fcMode: 'list', // 'list' | 'random-q'
-      fcScope: 'all', // 'all' | 'day-X' | 'ch-X' | 'pending'
-      customRandomDeckIds: null, // array of rowIds when user builds a Random Flashcard Set
-      customRandomDeckLabel: '',
-      randomQueue: [], // no-repeat shuffled rowIds for Random Question mode
-      randomCursor: 0,
-      docsChapterFilter: 'all',
-      searchQuery: '',
-      currentDay: saved.currentDay || 3,
-      studyStartDate: saved.studyStartDate || addDaysISO(toLocalISO(), -2),
-      doc: saved.doc,
-      flashcardsMap: saved.flashcardsMap || {},
-      appearance: { ...DEFAULT_APPEARANCE, ...(saved.appearance || {}) },
-      driveFiles: [],
-      driveSyncStatus: 'idle', // 'idle' | 'pending' | 'syncing' | 'synced' | 'error'
-      driveSyncTime: '',
-    };
-  }
+  const saved = loadMeta();
+  const startISO = saved?.studyStartDate || addDaysISO(toLocalISO(), -2);
+  const initialDoc = structuredClone(SAMPLE_DOC_DATA);
+  const initialChapters = groupRowsByChapter(initialDoc.rows);
 
-  const startISO = addDaysISO(toLocalISO(), -2);
   return {
     activeNav: 'home',
-    sidebarCollapsed: false,
     chartMode: 'day',
-    fcMode: 'list',
-    fcScope: 'all',
+    searchQuery: '',
+
+    // Study & Flashcards
+    currentDay: saved?.currentDay || 3,
+    studyStartDate: startISO,
+    doc: initialDoc,
+    lastDriveFileId: saved?.lastDriveFileId || null,
+    flashcardsMap: saved?.flashcardsMap || buildInitialSeededFlashcards(startISO),
+
+    fcViewMode: 'single', // 'single' (study-first!) | 'list'
+    fcScope: 'all', // 'all' | 'pending' | 'day-X' | 'ch-X'
+    fcIndex: 0,
+    fcListPage: 0,
     customRandomDeckIds: null,
-    customRandomDeckLabel: '',
+    customRandomLabel: '',
     randomQueue: [],
     randomCursor: 0,
-    docsChapterFilter: 'all',
-    searchQuery: '',
-    currentDay: 3,
-    studyStartDate: startISO,
-    doc: structuredClone(SAMPLE_DOC_DATA),
-    flashcardsMap: buildInitialSeededFlashcards(startISO),
-    appearance: { ...DEFAULT_APPEARANCE },
+    selectedRandCount: '5',
+
+    // Docs Read-First + Chapter Pagination (Zero lag even for 500+ Qs!)
+    docsSelectedChapter: initialChapters[0]?.chapterKey || 'all',
+    docsPage: 0,
+    docsEditMode: false,
+    editingSingleRowId: null,
+
+    // Appearance & Drive
+    appearance: { ...DEFAULT_APPEARANCE, ...(saved?.appearance || {}) },
     driveFiles: [],
-    driveSyncStatus: 'idle',
-    driveSyncTime: '',
+    driveBannerState: 'loading', // 'loading' | 'synced' | 'error'
+    driveBannerMsg: '☁ 正在自動連線 Google Drive / flashcard 資料夾...',
   };
 }
 
 const state = createInitialState();
 
-// DOM Element References
+// DOM references
 const els = {
   html: document.documentElement,
   body: document.body,
   canvas: document.getElementById('s9-wallpaper-canvas'),
-  appLayout: document.getElementById('app-layout'),
   fileInput: document.getElementById('docx-file-input'),
   globalDropVeil: document.getElementById('global-drop-veil'),
   toastPill: document.getElementById('toast-pill'),
   toastText: document.getElementById('toast-text'),
 
-  // Sidebar & Topbar
-  btnCollapseSidebar: document.getElementById('btn-collapse-sidebar'),
-  btnExpandSidebar: document.getElementById('btn-expand-sidebar'),
+  // Nav & Topbar
+  navBtns: document.querySelectorAll('[data-nav]'),
   sidebarSubLabel: document.getElementById('sidebar-sub-label'),
   topbarBreadcrumb: document.getElementById('topbar-breadcrumb'),
-  sideNavBtns: document.querySelectorAll('[data-nav]'),
-  btnSidebarRandom: document.getElementById('btn-sidebar-random'),
-  btnSidebarProfile: document.getElementById('btn-sidebar-profile'),
-  sidebarDriveCaption: document.getElementById('sidebar-drive-caption'),
   sidebarDriveDot: document.getElementById('sidebar-drive-dot'),
-  langBtns: document.querySelectorAll('[data-lang]'),
+  btnSidebarRandom: document.getElementById('btn-sidebar-random'),
   paletteDots: document.querySelectorAll('[data-set-palette]'),
   btnS9ModeToggle: document.getElementById('btn-s9-mode-toggle'),
   globalSearchInput: document.getElementById('global-search-input'),
-  btnTopAvatar: document.getElementById('btn-top-avatar'),
-  pageGreeting: document.getElementById('page-greeting'),
-  liveDateLine: document.getElementById('live-date-line'),
-  activeFileCaption: document.getElementById('active-file-caption'),
-  btnOpenDocx: document.getElementById('btn-open-docx'),
+  driveBannerStrip: document.getElementById('drive-banner-strip'),
+  driveBannerText: document.getElementById('drive-banner-text'),
+  btnDriveQuickReload: document.getElementById('btn-drive-quick-reload'),
 
   // Views
   viewHome: document.getElementById('view-home'),
   viewFlashcards: document.getElementById('view-flashcards'),
   viewDocs: document.getElementById('view-docs'),
-  viewDrive: document.getElementById('view-drive'),
-  viewSettings: document.getElementById('view-settings'),
+  viewCloud: document.getElementById('view-cloud'),
 
-  // Home Dashboard
+  // Home
+  pageGreeting: document.getElementById('page-greeting'),
+  activeFileCaption: document.getElementById('active-file-caption'),
   heroDayLabel: document.getElementById('hero-day-label'),
   btnDayMinus: document.getElementById('btn-day-minus'),
   btnDayPlus: document.getElementById('btn-day-plus'),
   heroShortDate: document.getElementById('hero-short-date'),
   heroClock: document.getElementById('hero-clock'),
-  heroFullDate: document.getElementById('hero-full-date'),
   btnHeroResume: document.getElementById('btn-hero-resume'),
   btnHeroRandomQ: document.getElementById('btn-hero-random-q'),
-  heroRingCircle: document.getElementById('hero-ring-circle'),
-  heroRingPct: document.getElementById('hero-ring-pct'),
   heroMasteryTitle: document.getElementById('hero-mastery-title'),
   heroMasterySub: document.getElementById('hero-mastery-sub'),
   orbitalDotSec: document.getElementById('orbital-dot-sec'),
@@ -228,120 +149,137 @@ const els = {
   cardHomeRandom: document.getElementById('card-home-random'),
   cardHomeDocs: document.getElementById('card-home-docs'),
   tileFcValue: document.getElementById('tile-fc-value'),
-  tileFcSub: document.getElementById('tile-fc-sub'),
   tileStudyValue: document.getElementById('tile-study-value'),
-  tileStudySub: document.getElementById('tile-study-sub'),
   tileDocsValue: document.getElementById('tile-docs-value'),
-  tileDocsSub: document.getElementById('tile-docs-sub'),
   chartModeBtns: document.querySelectorAll('[data-chart-mode]'),
   homeBarChart: document.getElementById('home-bar-chart'),
   homeSegmentedBar: document.getElementById('home-segmented-bar'),
   homeChapterBreakdown: document.getElementById('home-chapter-breakdown'),
-  btnHomeSyncRefresh: document.getElementById('btn-home-sync-refresh'),
 
-  // Flashcards
+  // Flashcards & Random Sheet
+  btnOpenRandomSheet: document.getElementById('btn-open-random-sheet'),
+  btnFcModeToggle: document.getElementById('btn-fc-mode-toggle'),
+  btnFcClearRandom: document.getElementById('btn-fc-clear-random'),
+  fcCounterPill: document.getElementById('fc-counter-pill'),
+  fcScopeRail: document.getElementById('fc-scope-rail'),
+  fcStudyStage: document.getElementById('fc-study-stage'),
+  randomDeckSheet: document.getElementById('random-deck-sheet'),
+  btnCloseRandomSheet: document.getElementById('btn-close-random-sheet'),
   randSourceSelect: document.getElementById('rand-source-select'),
-  randCountSelect: document.getElementById('rand-count-select'),
-  btnBuildRandomDeck: document.getElementById('btn-build-random-deck'),
-  btnPickRandomChapter: document.getElementById('btn-pick-random-chapter'),
-  fcModeBtns: document.querySelectorAll('[data-fc-mode]'),
-  fcScopeTabs: document.getElementById('fc-scope-tabs'),
-  btnFcRandomNext: document.getElementById('btn-fc-random-next'),
-  btnFcClearRandomDeck: document.getElementById('btn-fc-clear-random-deck'),
-  randomQuizBanner: document.getElementById('random-quiz-banner'),
-  randomPoolBadge: document.getElementById('random-pool-badge'),
-  randomDeckCaption: document.getElementById('random-deck-caption'),
-  btnRandomReshuffle: document.getElementById('btn-random-reshuffle'),
-  btnRandomStepNext: document.getElementById('btn-random-step-next'),
-  fcCardsList: document.getElementById('fc-cards-list'),
+  randCountPills: document.querySelectorAll('[data-rand-count]'),
+  btnSheetRandomChapter: document.getElementById('btn-sheet-random-chapter'),
+  btnSheetStartRandom: document.getElementById('btn-sheet-start-random'),
 
-  // Docs Editor
-  docsChapterPills: document.getElementById('docs-chapter-pills'),
-  chkWritebackChapterSort: document.getElementById('chk-writeback-chapter-sort'),
-  docsDriveSyncPill: document.getElementById('docs-drive-sync-pill'),
-  btnFmtHighlight: document.getElementById('btn-fmt-highlight'),
+  // Docs
+  btnDocsEditToggle: document.getElementById('btn-docs-edit-toggle'),
   btnDocsPaperMode: document.getElementById('btn-docs-paper-mode'),
+  btnDocsAddAllCh: document.getElementById('btn-docs-add-all-ch'),
+  btnDocsSyncNow: document.getElementById('btn-docs-sync-now'),
+  docsChapterRail: document.getElementById('docs-chapter-rail'),
+  docsEditToolbar: document.getElementById('docs-edit-toolbar'),
+  btnFmtHighlight: document.getElementById('btn-fmt-highlight'),
   btnDocsAddRow: document.getElementById('btn-docs-add-row'),
   btnDocsExport: document.getElementById('btn-docs-export'),
-  btnDocsSyncNow: document.getElementById('btn-docs-sync-now'),
+  chkWritebackSort: document.getElementById('chk-writeback-sort'),
   docsPaper: document.getElementById('docs-paper'),
-  docsTitleEditable: document.getElementById('docs-title-editable'),
-  docsAddedSummary: document.getElementById('docs-added-summary'),
-  btnDocsAddAll: document.getElementById('btn-docs-add-all'),
-  docsGroupedBody: document.getElementById('docs-grouped-body'),
+  docsChapterHeading: document.getElementById('docs-chapter-heading'),
+  docsChapterCount: document.getElementById('docs-chapter-count'),
+  docsRowsContainer: document.getElementById('docs-rows-container'),
+  docsPaginationBar: document.getElementById('docs-pagination-bar'),
 
-  // Google Drive
-  driveStatusBadge: document.getElementById('drive-status-badge'),
-  driveModeBtns: document.querySelectorAll('[data-drive-mode]'),
-  driveOauthBox: document.getElementById('drive-oauth-box'),
-  driveScriptBox: document.getElementById('drive-script-box'),
-  originHintCode: document.getElementById('origin-hint-code'),
-  inputGdriveClientId: document.getElementById('input-gdrive-client-id'),
-  btnDriveOauthConnect: document.getElementById('btn-drive-oauth-connect'),
-  btnDriveDisconnect: document.getElementById('btn-drive-disconnect'),
+  // Cloud & Settings
   inputAppsScriptUrl: document.getElementById('input-apps-script-url'),
-  btnDriveScriptConnect: document.getElementById('btn-drive-script-connect'),
-  btnCopyAppsScript: document.getElementById('btn-copy-apps-script'),
-  appsScriptCode: document.getElementById('apps-script-code'),
-  btnDrivePushAll: document.getElementById('btn-drive-push-all'),
-  btnDrivePullAll: document.getElementById('btn-drive-pull-all'),
-  btnDriveListFolder: document.getElementById('btn-drive-list-folder'),
-  btnDriveListAll: document.getElementById('btn-drive-list-all'),
-  driveFilesHint: document.getElementById('drive-files-hint'),
+  btnCloudReconnect: document.getElementById('btn-cloud-reconnect'),
+  btnCloudUploadLocal: document.getElementById('btn-cloud-upload-local'),
+  btnCloudPush: document.getElementById('btn-cloud-push'),
+  btnDriveBrowseAll: document.getElementById('btn-drive-browse-all'),
   driveFilesContainer: document.getElementById('drive-files-container'),
-
-  // Settings
+  settingsS9Checkbox: document.getElementById('settings-s9-checkbox'),
   settingsCustomAccent: document.getElementById('settings-custom-accent'),
-  settingsAccentHex: document.getElementById('settings-accent-hex'),
   settingsRadiusSlider: document.getElementById('settings-radius-slider'),
   settingsRadiusVal: document.getElementById('settings-radius-val'),
   settingsKSlider: document.getElementById('settings-k-slider'),
   settingsKVal: document.getElementById('settings-k-val'),
-  settingsS9Checkbox: document.getElementById('settings-s9-checkbox'),
   wpPresetBtns: document.querySelectorAll('[data-wp-preset]'),
-  settingsWpSpeed: document.getElementById('settings-wp-speed'),
-  settingsWpSpeedVal: document.getElementById('settings-wp-speed-val'),
 };
 
 function init() {
   wallpaper = new GalaxyS9Wallpaper(els.canvas);
   wallpaper.start();
 
-  // Auto-collapse sidebar on narrow portrait screens (like IMG_9403)
-  if (window.innerWidth < 900) {
-    state.sidebarCollapsed = true;
-  }
-
-  els.originHintCode.textContent = window.location.origin;
-  els.inputGdriveClientId.value = driveClient.clientId;
   els.inputAppsScriptUrl.value = driveClient.appsScriptUrl;
-  els.appsScriptCode.textContent = APPS_SCRIPT_TEMPLATE;
 
   applyAppearance();
   startLiveClock();
   bindEvents();
   renderAll();
 
-  // Auto-connect to Google Drive (flashcard folder) and load the user's .docx on startup
+  // Auto-fetch from Google Drive / flashcard immediately on load
   autoConnectDriveAndLoad();
 }
 
-async function autoConnectDriveAndLoad() {
-  if (!driveClient.isConnected()) return;
+/* ==========================================================================
+   Lightweight Persistence (NEVER freezes iPad with 5MB DOM dumps!)
+   ========================================================================== */
 
-  state.driveSyncStatus = 'syncing';
-  renderDocsSyncStatus();
+function persistMeta() {
+  try {
+    localStorage.setItem(
+      META_STORAGE_KEY,
+      JSON.stringify({
+        currentDay: state.currentDay,
+        studyStartDate: state.studyStartDate,
+        lastDriveFileId: state.doc.driveFileId || state.lastDriveFileId,
+        flashcardsMap: state.flashcardsMap,
+        appearance: state.appearance,
+      })
+    );
+  } catch {
+    // Safe ignore
+  }
+}
+
+function getCloudStatePayload() {
+  return {
+    version: 4,
+    savedAt: new Date().toISOString(),
+    currentDay: state.currentDay,
+    studyStartDate: state.studyStartDate,
+    lastDriveFileId: state.doc.driveFileId,
+    flashcardsMap: state.flashcardsMap,
+    appearance: state.appearance,
+  };
+}
+
+/* ==========================================================================
+   Google Drive Auto-Load & 2.5s Debounced In-Place OOXML Writeback
+   ========================================================================== */
+
+function setDriveBanner(status, msg) {
+  state.driveBannerState = status;
+  state.driveBannerMsg = msg;
+  els.driveBannerStrip.className = `drive-banner-strip sq-md is-${status}`;
+  els.driveBannerText.textContent = msg;
+  els.sidebarDriveDot.classList.toggle('connected', status === 'synced');
+}
+
+async function autoConnectDriveAndLoad(allDrive = false) {
+  if (!driveClient.isConnected()) {
+    setDriveBanner('error', '未設定 Google Drive 橋接網址，請前往「雲端/設定」貼上 Apps Script URL');
+    return;
+  }
+
+  setDriveBanner('loading', '☁ 正在讀取 Google Drive / flashcard 資料夾...');
 
   try {
     await driveClient.ensureFlashcardFolder();
     const [files, cloudState] = await Promise.all([
-      driveClient.listDocuments(false),
+      driveClient.listDocuments(allDrive),
       driveClient.loadWorkspaceState().catch(() => null),
     ]);
 
     state.driveFiles = files || [];
 
-    // Restore cloud flashcards / Day progress / appearance if saved previously
     if (cloudState) {
       if (cloudState.flashcardsMap) state.flashcardsMap = cloudState.flashcardsMap;
       if (cloudState.currentDay) state.currentDay = cloudState.currentDay;
@@ -349,241 +287,107 @@ async function autoConnectDriveAndLoad() {
         state.appearance = { ...DEFAULT_APPEARANCE, ...cloudState.appearance };
         applyAppearance();
       }
+      if (cloudState.lastDriveFileId) state.lastDriveFileId = cloudState.lastDriveFileId;
     }
 
-    // Automatically download & open the .docx placed inside Google Drive / flashcard
     if (state.driveFiles.length > 0) {
-      const targetFile =
-        state.driveFiles.find((f) => f.id === state.doc.driveFileId) || state.driveFiles[0];
-      showToast(`☁ 正在自動讀取 Google Drive / flashcard：${targetFile.name}...`);
-      const buf = await driveClient.downloadDocxArrayBuffer(targetFile.id, targetFile.mimeType);
-      const parsed = await parseDocxDocument(buf, targetFile.name);
-
-      if (parsed.rows.length > 0) {
-        rawDocxBuffer = parsed.rawBuffer;
-        state.doc = {
-          title: parsed.title,
-          fileName: parsed.fileName,
-          rows: parsed.rows,
-          driveFileId: targetFile.id,
-        };
-        state.driveSyncStatus = 'synced';
-        state.driveSyncTime = new Date().toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-        persistLocal();
-        renderAll();
-        const chCount = getChaptersSummary().length;
-        showToast(
-          `✓ 已自動載入 ${targetFile.name}（共 ${parsed.rows.length} 題 · ${chCount} 個 Chapter）`
-        );
-        return;
-      }
-    }
-
-    state.driveSyncStatus = 'synced';
-    state.driveSyncTime = '已連線';
-    renderAll();
-  } catch (err) {
-    console.warn('Auto Drive connect error:', err);
-    state.driveSyncStatus = 'error';
-    renderDocsSyncStatus();
-    showToast(`自動連線 Google Drive 失敗：${err.message}`);
-  }
-}
-
-/* ==========================================================================
-   Persistence & Live Debounced Google Drive Writeback
-   ========================================================================== */
-
-function loadFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function getSerializableState() {
-  return {
-    version: 3,
-    savedAt: new Date().toISOString(),
-    currentDay: state.currentDay,
-    studyStartDate: state.studyStartDate,
-    doc: state.doc,
-    flashcardsMap: state.flashcardsMap,
-    appearance: state.appearance,
-  };
-}
-
-function persistLocal() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(getSerializableState()));
-  } catch (e) {
-    console.warn('LocalStorage write skipped:', e);
-  }
-}
-
-/**
- * Schedules a 2.5-second debounced in-place writeback of the edited .docx
- * straight back into Google Drive (plus workspace state JSON).
- */
-function scheduleDriveAutoSync() {
-  persistLocal();
-  if (!driveClient.isConnected()) {
-    state.driveSyncStatus = 'idle';
-    renderDocsSyncStatus();
-    return;
-  }
-
-  state.driveSyncStatus = 'pending';
-  renderDocsSyncStatus();
-
-  clearTimeout(autoSyncTimer);
-  autoSyncTimer = setTimeout(() => {
-    syncDocAndStateToDrive(false);
-  }, 2500);
-}
-
-async function syncDocAndStateToDrive(showSuccessToast = true) {
-  if (!driveClient.isConnected()) {
-    if (showSuccessToast) {
-      state.activeNav = 'drive';
+      const target =
+        state.driveFiles.find((f) => f.id === (state.doc.driveFileId || state.lastDriveFileId)) ||
+        state.driveFiles[0];
+      await openDriveFile(target);
+    } else {
+      setDriveBanner('synced', '✓ 已連線 Google Drive / flashcard（目前資料夾內尚無 .docx，使用內建範例）');
       renderAll();
-      showToast('請先連接 Google Drive，修改內容即可自動覆寫雲端原檔');
     }
+  } catch (err) {
+    setDriveBanner('error', `⚠ Google Drive 連線失敗：${err.message}`);
+    renderCloudView();
+  }
+}
+
+async function openDriveFile(fileMeta) {
+  setDriveBanner('loading', `☁ 正在下載並解析 ${fileMeta.name}...`);
+  const buf = await driveClient.downloadDocxArrayBuffer(fileMeta.id, fileMeta.mimeType);
+  const parsed = await parseDocxDocument(buf, fileMeta.name);
+  if (!parsed.rows.length) {
+    setDriveBanner('error', `⚠ ${fileMeta.name} 中未偵測到雙欄問答表格或 Q&A 內容`);
     return;
   }
 
-  clearTimeout(autoSyncTimer);
-  state.driveSyncStatus = 'syncing';
-  renderDocsSyncStatus();
+  rawDocxBuffer = parsed.rawBuffer;
+  state.doc = {
+    title: parsed.title,
+    fileName: parsed.fileName,
+    rows: parsed.rows,
+    driveFileId: fileMeta.id,
+  };
+  state.lastDriveFileId = fileMeta.id;
 
+  const chapters = groupRowsByChapter(parsed.rows);
+  state.docsSelectedChapter = chapters[0]?.chapterKey || 'all';
+  state.docsPage = 0;
+  state.fcIndex = 0;
+
+  persistMeta();
+  setDriveBanner(
+    'synced',
+    `✓ 已連線 Drive · ${fileMeta.name}（${parsed.rows.length} 題 · ${chapters.length} 章）`
+  );
+  renderAll();
+}
+
+function scheduleDriveAutoSync() {
+  persistMeta();
+  if (!driveClient.isConnected()) return;
+  setDriveBanner('loading', '✏️ 編輯中… 停筆 2.5 秒後自動寫回 Google Drive 原檔');
+  clearTimeout(autoSyncTimer);
+  autoSyncTimer = setTimeout(() => syncToDrive(false), 2500);
+}
+
+async function syncToDrive(showAlert = true) {
+  if (!driveClient.isConnected()) {
+    if (showAlert) showToast('請先在「雲端/設定」連線 Google Drive');
+    return;
+  }
+  clearTimeout(autoSyncTimer);
+  setDriveBanner('loading', '☁ 正在寫回 Google Drive 原檔與閃卡進度...');
   try {
-    const docxBlob = await buildUpdatedDocxBlob(state.doc, rawDocxBuffer, {
+    const blob = await buildUpdatedDocxBlob(state.doc, rawDocxBuffer, {
       sortByChapter: state.appearance.writebackSortByChapter,
     });
-    const savedFile = await driveClient.saveDocxToDrive(
-      state.doc.fileName,
-      docxBlob,
-      state.doc.driveFileId
-    );
-    if (savedFile?.id) {
-      state.doc.driveFileId = savedFile.id;
-    }
-    // Refresh in-memory rawDocxBuffer to the newly patched blob so subsequent edits stay cumulative!
-    rawDocxBuffer = await docxBlob.arrayBuffer();
+    const saved = await driveClient.saveDocxToDrive(state.doc.fileName, blob, state.doc.driveFileId);
+    if (saved?.id) state.doc.driveFileId = saved.id;
+    rawDocxBuffer = await blob.arrayBuffer();
     state.doc.rows.forEach((r) => {
       r.dirty = false;
     });
+    await driveClient.saveWorkspaceState(getCloudStatePayload());
+    persistMeta();
 
-    await driveClient.saveWorkspaceState(getSerializableState());
-    persistLocal();
-
-    state.driveSyncStatus = 'synced';
-    state.driveSyncTime = new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-    renderDocsSyncStatus();
-
-    if (showSuccessToast) {
-      showToast(`✓ 已將修改寫回 Google Drive 原檔 (${state.doc.fileName})`);
-    }
+    const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setDriveBanner('synced', `✓ 已同步寫回 Google Drive 原檔 (${t})`);
+    if (showAlert) showToast('✓ 已寫回 Google Drive 原檔與閃卡進度！');
   } catch (err) {
-    state.driveSyncStatus = 'error';
-    renderDocsSyncStatus();
-    showToast(`寫回 Google Drive 失敗：${err.message}`);
+    setDriveBanner('error', `⚠ 寫回 Drive 失敗：${err.message}`);
   }
 }
 
 /* ==========================================================================
-   Live Clock & Concentric Orbital Disc Animation (IMG_9404 & IMG_9403)
-   ========================================================================== */
-
-function startLiveClock() {
-  const tick = () => {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
-
-    els.heroClock.textContent = `${hh}:${mm}:${ss}`;
-
-    const isEn = state.appearance.lang === 'en';
-    const dayStr = now.toLocaleDateString(isEn ? 'en-GB' : 'zh-Hant', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-    });
-    const fullStr = now.toLocaleDateString(isEn ? 'en-GB' : 'zh-Hant', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
-    els.heroShortDate.textContent = dayStr;
-    els.heroFullDate.textContent = fullStr;
-    els.liveDateLine.textContent = `${fullStr} · ${hh}:${mm}`;
-
-    // Greeting text
-    const hr = now.getHours();
-    if (isEn) {
-      const part = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
-      els.pageGreeting.textContent = `${part}, Wesley`;
-    } else {
-      const part = hr < 12 ? '早安' : hr < 18 ? '午安' : '晚安';
-      els.pageGreeting.textContent = `${part}，Wesley`;
-    }
-
-    // Animate Concentric Orbital Disc Satellite Dots!
-    const secAngle = ((now.getSeconds() + now.getMilliseconds() / 1000) / 60) * Math.PI * 2 - Math.PI / 2;
-    const minAngle = ((now.getMinutes() + now.getSeconds() / 60) / 60) * Math.PI * 2 - Math.PI / 2;
-
-    const sx = 80 + Math.cos(secAngle) * 64;
-    const sy = 80 + Math.sin(secAngle) * 64;
-    const mx = 80 + Math.cos(minAngle) * 48;
-    const my = 80 + Math.sin(minAngle) * 48;
-
-    els.orbitalDotSec.setAttribute('cx', sx.toFixed(1));
-    els.orbitalDotSec.setAttribute('cy', sy.toFixed(1));
-    els.orbitalDotMin.setAttribute('cx', mx.toFixed(1));
-    els.orbitalDotMin.setAttribute('cy', my.toFixed(1));
-
-    // Dynamic orbital trail arc behind second dot
-    const startA = secAngle - 1.15;
-    const ax1 = 80 + Math.cos(startA) * 64;
-    const ay1 = 80 + Math.sin(startA) * 64;
-    els.orbitalArc.setAttribute('d', `M ${ax1.toFixed(1)} ${ay1.toFixed(1)} A 64 64 0 0 1 ${sx.toFixed(1)} ${sy.toFixed(1)}`);
-  };
-
-  tick();
-  clearInterval(clockInterval);
-  clockInterval = setInterval(tick, 1000);
-}
-
-/* ==========================================================================
-   Appearance, Bilingual I18N, Continuous Curvature & Optional S9 Mode
+   Appearance & Live Clock
    ========================================================================== */
 
 function applyAppearance() {
   const a = state.appearance;
-
   els.html.setAttribute('data-palette', a.palette);
   if (a.customAccentHex) {
     els.html.style.setProperty('--accent', a.customAccentHex);
     els.html.style.setProperty('--accent-deep', a.customAccentHex);
-    els.html.style.setProperty('--accent-soft', hexToRgba(a.customAccentHex, 0.15));
+    els.html.style.setProperty('--accent-soft', hexToRgba(a.customAccentHex, 0.14));
     els.html.style.setProperty('--accent-glow', hexToRgba(a.customAccentHex, 0.28));
   }
-
   els.html.style.setProperty('--sq-radius', `${a.sqRadius}px`);
   els.html.style.setProperty('--sq-k', String(a.sqCurvature));
 
-  // Optional Samsung Galaxy S9 Live Wallpaper Mode
   els.body.classList.toggle('s9-wallpaper-mode', Boolean(a.s9Mode));
   els.btnS9ModeToggle.classList.toggle('active', Boolean(a.s9Mode));
   els.settingsS9Checkbox.checked = Boolean(a.s9Mode);
@@ -595,362 +399,125 @@ function applyAppearance() {
     wallpaper.setPaused(!a.s9Mode);
   }
 
-  // Sync Palette Dots & Settings Controls
   els.paletteDots.forEach((d) => d.classList.toggle('active', d.dataset.setPalette === a.palette));
   els.settingsCustomAccent.value = a.customAccentHex;
-  els.settingsAccentHex.textContent = a.customAccentHex.toUpperCase();
   els.settingsRadiusSlider.value = String(a.sqRadius);
   els.settingsRadiusVal.textContent = `${a.sqRadius}px`;
   els.settingsKSlider.value = String(a.sqCurvature);
   els.settingsKVal.textContent = Number(a.sqCurvature).toFixed(2);
   els.wpPresetBtns.forEach((b) => b.classList.toggle('active', b.dataset.wpPreset === a.wpPreset));
-  els.settingsWpSpeed.value = String(a.wpSpeed);
-  els.settingsWpSpeedVal.textContent = `${Number(a.wpSpeed).toFixed(1)}×`;
 
-  // Docs paper light/dark
   els.docsPaper.classList.toggle('paper-light', a.docsPaper === 'light');
-  els.btnDocsPaperMode.textContent = a.docsPaper === 'dark' ? '🌙 深色原檔' : '☀ 淺色原檔';
-  els.chkWritebackChapterSort.checked = Boolean(a.writebackSortByChapter);
+  els.btnDocsPaperMode.textContent = a.docsPaper === 'dark' ? '🌙 深色紙張' : '☀ 淺色紙張';
+  els.chkWritebackSort.checked = Boolean(a.writebackSortByChapter);
+}
 
-  // Bilingual I18N
-  const dict = I18N[a.lang] || I18N.zh;
-  els.langBtns.forEach((b) => b.classList.toggle('active', b.dataset.lang === a.lang));
-  document.querySelectorAll('[data-i18n]').forEach((el) => {
-    const key = el.dataset.i18n;
-    if (dict[key]) el.textContent = dict[key];
-  });
+function startLiveClock() {
+  const tick = () => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    els.heroClock.textContent = `${hh}:${mm}:${ss}`;
+    els.heroShortDate.textContent = now.toLocaleDateString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+
+    const hr = now.getHours();
+    els.pageGreeting.textContent = hr < 12 ? '早安，Wesley' : hr < 18 ? '午安，Wesley' : '晚安，Wesley';
+
+    const secA = (now.getSeconds() / 60) * Math.PI * 2 - Math.PI / 2;
+    const minA = (now.getMinutes() / 60) * Math.PI * 2 - Math.PI / 2;
+    const sx = 80 + Math.cos(secA) * 64;
+    const sy = 80 + Math.sin(secA) * 64;
+    els.orbitalDotSec.setAttribute('cx', sx.toFixed(1));
+    els.orbitalDotSec.setAttribute('cy', sy.toFixed(1));
+    els.orbitalDotMin.setAttribute('cx', (80 + Math.cos(minA) * 46).toFixed(1));
+    els.orbitalDotMin.setAttribute('cy', (80 + Math.sin(minA) * 46).toFixed(1));
+    const ax1 = 80 + Math.cos(secA - 1.1) * 64;
+    const ay1 = 80 + Math.sin(secA - 1.1) * 64;
+    els.orbitalArc.setAttribute('d', `M ${ax1.toFixed(1)} ${ay1.toFixed(1)} A 64 64 0 0 1 ${sx.toFixed(1)} ${sy.toFixed(1)}`);
+  };
+  tick();
+  clearInterval(clockTimer);
+  clockTimer = setInterval(tick, 1000);
 }
 
 /* ==========================================================================
-   Data Helpers (Rows, Chapters, Flashcards & Random Queues)
+   Data Helpers
    ========================================================================== */
 
-function getRowById(rowId) {
-  return state.doc.rows.find((r) => r.id === rowId);
+function getRowById(id) {
+  return state.doc.rows.find((r) => r.id === id);
 }
 
-function getAddedFlashcardRows() {
+function getAddedFlashcards() {
   return state.doc.rows
     .filter((r) => Boolean(state.flashcardsMap[r.id]))
     .map((row) => ({ row, meta: state.flashcardsMap[row.id] }));
 }
 
-function getChaptersSummary() {
-  return groupRowsByChapter(state.doc.rows);
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 function addRowToFlashcards(rowId, day = state.currentDay) {
   const row = getRowById(rowId);
-  if (!row) return;
-  if (state.flashcardsMap[rowId]) {
-    showToast(`Q${String(row.index).padStart(2, '0')} 已在 Day ${state.flashcardsMap[rowId].addedDay} 加入過閃卡`);
-    return;
-  }
+  if (!row || state.flashcardsMap[rowId]) return;
   state.flashcardsMap[rowId] = {
     rowId,
     addedDay: day,
     addedDate: toLocalISO(),
     mastered: false,
-    bookmarked: false,
     checkedPoints: [],
   };
-  persistLocal();
+  persistMeta();
   renderAll();
-  showToast(`✓ 已加入 Q${String(row.index).padStart(2, '0')}（${row.chapterShort} · Day ${day}）`);
+  showToast(`✓ 已加入 Q${row.index}（Day ${day}）`);
   if (driveClient.isConnected()) {
-    driveClient.saveWorkspaceState(getSerializableState()).catch(() => {});
+    driveClient.saveWorkspaceState(getCloudStatePayload()).catch(() => {});
   }
 }
 
 function removeRowFromFlashcards(rowId) {
   if (!state.flashcardsMap[rowId]) return;
   delete state.flashcardsMap[rowId];
-  persistLocal();
+  persistMeta();
   renderAll();
-  showToast('已從閃卡清單移出（原檔題目保留）');
+  showToast('已從閃卡清單移除');
 }
 
-function shuffleArray(arr) {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-/**
- * ① 選 Flashcard 處：建立隨機閃卡組 (Random Flashcard Set)
- */
-function buildRandomFlashcardDeck(source = 'added', countVal = '5') {
-  let poolRows = [];
-  if (source === 'added') {
-    poolRows = state.doc.rows.filter((r) => Boolean(state.flashcardsMap[r.id]));
-  } else if (source === 'pending') {
-    poolRows = state.doc.rows.filter((r) => state.flashcardsMap[r.id] && !state.flashcardsMap[r.id].mastered);
-  } else if (source === 'all-doc') {
-    poolRows = [...state.doc.rows];
-  } else if (source.startsWith('ch-')) {
-    poolRows = state.doc.rows.filter((r) => r.chapterKey === source);
-  }
-
-  if (poolRows.length === 0) {
-    // Graceful fallback to all doc rows so random button always gives instant delight
-    poolRows = [...state.doc.rows];
-  }
-
-  const shuffled = shuffleArray(poolRows);
-  const picked = countVal === 'all' ? shuffled : shuffled.slice(0, Math.min(Number(countVal) || 5, shuffled.length));
-
-  state.customRandomDeckIds = picked.map((r) => r.id);
-  state.customRandomDeckLabel = `隨機抽出 ${picked.length} 張閃卡組`;
-  state.randomQueue = [...state.customRandomDeckIds];
-  state.randomCursor = 0;
-  state.activeNav = 'flashcards';
-  state.fcMode = 'list';
-  renderAll();
-  showToast(`🎲 已為你隨機抽出 ${picked.length} 張閃卡組成練習牌組！`);
-}
-
-/**
- * ① 選 Flashcard 處：隨機挑選一個 Chapter 開始複習
- */
-function pickRandomChapterDeck() {
-  const chapters = getChaptersSummary();
-  if (chapters.length === 0) return;
-  const chosen = chapters[Math.floor(Math.random() * chapters.length)];
-  state.customRandomDeckIds = shuffleArray(chosen.rows).map((r) => r.id);
-  state.customRandomDeckLabel = `隨機抽中章節：${chosen.chapterLabel} (${chosen.rows.length} 題)`;
-  state.randomQueue = [...state.customRandomDeckIds];
-  state.randomCursor = 0;
-  state.activeNav = 'flashcards';
-  state.fcMode = 'list';
-  renderAll();
-  showToast(`🎯 隨機挑中 ${chosen.chapterLabel}（共 ${chosen.rows.length} 題）！`);
-}
-
-/**
- * ② Flashcard 頁面內：無重複隨機抽下一題 (Random Question Pool)
- */
-function stepRandomQuestion(forceFresh = false) {
-  const candidates = getCurrentFlashcardCandidates();
-  if (candidates.length === 0) {
-    showToast('目前範圍沒有閃卡可抽題，請先調整篩選或從 Docs 加入題目');
-    return;
-  }
-
-  const candidateIds = candidates.map((c) => c.row.id);
-  const queueValid =
-    !forceFresh &&
-    state.randomQueue.length === candidateIds.length &&
-    state.randomQueue.every((id) => candidateIds.includes(id));
-
-  if (!queueValid) {
-    state.randomQueue = shuffleArray(candidateIds);
-    state.randomCursor = 0;
-  } else {
-    state.randomCursor += 1;
-    if (state.randomCursor >= state.randomQueue.length) {
-      state.randomQueue = shuffleArray(candidateIds);
-      state.randomCursor = 0;
-      showToast('🎉 本輪所有題目皆已無重複抽完！已自動開啟全新洗牌輪次');
-    }
-  }
-
-  state.fcMode = 'random-q';
-  renderAll();
-}
-
-/* ==========================================================================
-   Master Render Orchestrator
-   ========================================================================== */
-
-function renderAll() {
-  els.appLayout.classList.toggle('sidebar-collapsed', state.sidebarCollapsed);
-
-  const navLabels = {
-    home: 'Home',
-    flashcards: 'Flashcards',
-    docs: 'Docs 原檔',
-    drive: 'Google Drive',
-    settings: 'Appearance',
-  };
-  els.topbarBreadcrumb.textContent = navLabels[state.activeNav] || 'Home';
-  els.sidebarSubLabel.textContent = navLabels[state.activeNav] || 'Home';
-  els.activeFileCaption.textContent = state.doc.fileName;
-
-  // Drive Status
-  const connected = driveClient.isConnected();
-  els.sidebarDriveDot.classList.toggle('connected', connected);
-  els.sidebarDriveCaption.textContent = connected
-    ? driveClient.userEmail || 'Drive / flashcard'
-    : '@Wesley67123a';
-
-  // Active nav buttons & sections
-  els.sideNavBtns.forEach((b) => b.classList.toggle('active', b.dataset.nav === state.activeNav));
-  els.viewHome.classList.toggle('active', state.activeNav === 'home');
-  els.viewFlashcards.classList.toggle('active', state.activeNav === 'flashcards');
-  els.viewDocs.classList.toggle('active', state.activeNav === 'docs');
-  els.viewDrive.classList.toggle('active', state.activeNav === 'drive');
-  els.viewSettings.classList.toggle('active', state.activeNav === 'settings');
-
-  renderHomeDashboard();
-  renderFlashcardsView();
-  renderDocsView();
-  renderDriveView();
-}
-
-/* ==========================================================================
-   VIEW 1: HOME DASHBOARD RENDERER (IMG_9404 & IMG_9403)
-   ========================================================================== */
-
-function renderHomeDashboard() {
-  const addedItems = getAddedFlashcardRows();
-  const chapters = getChaptersSummary();
-  const totalDocs = state.doc.rows.length;
-  const totalAdded = addedItems.length;
-  const mastered = addedItems.filter((x) => x.meta.mastered).length;
-  const pending = totalAdded - mastered;
-  const pct = totalAdded > 0 ? Math.round((mastered / totalAdded) * 100) : 0;
-
-  // Hero Ring & Labels
-  els.heroDayLabel.textContent = `Day ${state.currentDay}`;
-  const circumference = 2 * Math.PI * 19; // 119.38
-  els.heroRingCircle.setAttribute('stroke-dasharray', circumference.toFixed(2));
-  els.heroRingCircle.setAttribute('stroke-dashoffset', (circumference * (1 - pct / 100)).toFixed(2));
-  els.heroRingPct.textContent = `${pct}%`;
-  els.heroMasteryTitle.textContent =
-    state.appearance.lang === 'en'
-      ? `Mastered ${mastered} / ${totalAdded} Cards`
-      : `已掌握 ${mastered} / ${totalAdded} 張閃卡`;
-  els.heroMasterySub.textContent =
-    state.appearance.lang === 'en'
-      ? `${totalAdded} / ${totalDocs} doc questions collected`
-      : `原檔已收錄 ${totalAdded} / ${totalDocs} 題`;
-
-  // 4 Pastel Cards
-  els.tileFcValue.textContent = `${totalAdded} Cards`;
-  els.tileFcSub.textContent = `${mastered} 已掌握 · ${pending} 待複習`;
-
-  // Infer Subject Name from filename/title
-  const subjectGuess = /chem/i.test(state.doc.title + state.doc.fileName)
-    ? 'Chemistry'
-    : /phys/i.test(state.doc.title + state.doc.fileName)
-      ? 'Physics'
-      : /bio/i.test(state.doc.title + state.doc.fileName)
-        ? 'Biology'
-        : state.doc.title.slice(0, 14);
-  const numericChapters = chapters.filter((c) => c.chapterNum < 9999);
-  const chRange =
-    numericChapters.length >= 2
-      ? `${numericChapters[0].chapterShort} – ${numericChapters[numericChapters.length - 1].chapterShort}`
-      : numericChapters[0]?.chapterShort || `${chapters.length} Sections`;
-  els.tileStudyValue.textContent = subjectGuess;
-  els.tileStudySub.textContent = chRange;
-
-  els.tileDocsValue.textContent = `${chapters.length} Chapters`;
-  els.tileDocsSub.textContent = driveClient.isConnected() ? '☁ Drive 自動同步已啟用' : '依 Chapter 自然排序';
-
-  // Bottom Left Capsule Bar Chart (A · Day / B · Chapter)
-  els.chartModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.chartMode === state.chartMode));
-
-  let bars = [];
-  if (state.chartMode === 'day') {
-    const maxDay = Math.max(state.currentDay, ...addedItems.map((x) => x.meta.addedDay || 1), 6);
-    for (let d = 1; d <= Math.min(maxDay + 1, 7); d++) {
-      const cnt = addedItems.filter((x) => x.meta.addedDay === d).length;
-      bars.push({
-        label: `D${d}`,
-        count: cnt,
-        highlight: d === state.currentDay,
-        actionType: 'day',
-        actionKey: `day-${d}`,
-      });
-    }
-  } else {
-    bars = chapters.slice(0, 7).map((ch, idx) => ({
-      label: ch.chapterShort,
-      count: ch.rows.length,
-      highlight: idx === 1 || (chapters.length === 1 && idx === 0),
-      actionType: 'chapter',
-      actionKey: ch.chapterKey,
-    }));
-  }
-
-  const maxBar = Math.max(...bars.map((b) => b.count), 1);
-  els.homeBarChart.innerHTML = bars
-    .map((b) => {
-      const hPct = b.count === 0 ? 18 : Math.max(26, Math.round((b.count / maxBar) * 100));
-      return `
-        <div
-          class="capsule-bar-col ${b.highlight ? 'is-highlight' : ''}"
-          data-bar-type="${b.actionType}"
-          data-bar-key="${escapeAttr(b.actionKey)}"
-          title="${escapeAttr(b.label)}: ${b.count} 題"
-        >
-          <span style="font-size: 0.7rem; font-weight: 700; color: var(--ink-secondary)">${b.count}</span>
-          <div class="capsule-bar-pill" style="height: ${hPct}%"></div>
-          <span class="capsule-bar-lbl">${escapeHtml(b.label)}</span>
-        </div>
-      `;
-    })
-    .join('');
-
-  // Bottom Right Multi-Color Segmented Horizontal Bar + Chapter Mastery Breakdown
-  const totalAllRows = Math.max(state.doc.rows.length, 1);
-  els.homeSegmentedBar.innerHTML = chapters
-    .map((ch, i) => {
-      const color = BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length];
-      return `<div class="segmented-hbar-seg" style="flex-grow: ${ch.rows.length}; background: ${color}" title="${escapeAttr(ch.chapterLabel)}: ${ch.rows.length} 題"></div>`;
-    })
-    .join('');
-
-  els.homeChapterBreakdown.innerHTML = chapters
-    .map((ch, i) => {
-      const color = BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length];
-      const addedInCh = ch.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length;
-      const fillPct = ch.rows.length > 0 ? Math.round((addedInCh / ch.rows.length) * 100) : 0;
-      return `
-        <div class="chapter-break-row" data-jump-chapter-docs="${escapeAttr(ch.chapterKey)}" title="點擊前往 Docs 檢視 ${escapeAttr(ch.chapterLabel)}">
-          <span class="break-dot" style="background: ${color}"></span>
-          <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${escapeHtml(ch.chapterShort)}</strong>
-          <div class="break-track">
-            <div class="break-fill" style="width: ${Math.max(fillPct, addedInCh > 0 ? 12 : 4)}%; background: ${color}"></div>
-          </div>
-          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.73rem; color: var(--ink-secondary)">
-            ${addedInCh}/${ch.rows.length}
-          </span>
-        </div>
-      `;
-    })
-    .join('');
-}
-
-/* ==========================================================================
-   VIEW 2: FLASHCARDS VIEW (Random Deck Builder + Simultaneous Q&A + Random Q)
-   ========================================================================== */
-
-function getCurrentFlashcardCandidates() {
+function getFlashcardCandidates() {
   const q = state.searchQuery.trim().toLowerCase();
-
   let list = [];
-  if (state.customRandomDeckIds && state.customRandomDeckIds.length > 0) {
+
+  if (state.customRandomDeckIds?.length) {
     list = state.customRandomDeckIds
       .map((id) => getRowById(id))
       .filter(Boolean)
       .map((row) => ({
         row,
-        meta: state.flashcardsMap[row.id] || {
-          rowId: row.id,
-          addedDay: null,
-          mastered: false,
-          bookmarked: false,
-          checkedPoints: [],
-        },
+        meta: state.flashcardsMap[row.id] || { rowId: row.id, addedDay: null, mastered: false, checkedPoints: [] },
       }));
   } else {
-    const added = getAddedFlashcardRows();
-    list = added.filter(({ row, meta }) => {
+    const added = getAddedFlashcards();
+    // If user hasn't added any cards from a newly loaded Drive docx yet, gracefully show all doc rows so Flashcards is immediately usable!
+    const basePool =
+      added.length > 0
+        ? added
+        : state.doc.rows.map((row) => ({
+            row,
+            meta: { rowId: row.id, addedDay: null, mastered: false, checkedPoints: [] },
+          }));
+
+    list = basePool.filter(({ row, meta }) => {
       if (state.fcScope === 'pending') return !meta.mastered;
       if (state.fcScope.startsWith('day-')) return meta.addedDay === Number(state.fcScope.replace('day-', ''));
       if (state.fcScope.startsWith('ch-')) return row.chapterKey === state.fcScope;
@@ -960,107 +527,205 @@ function getCurrentFlashcardCandidates() {
 
   if (!q) return list;
   return list.filter(
-    ({ row, meta }) =>
+    ({ row }) =>
       row.question.toLowerCase().includes(q) ||
       row.answerRaw.toLowerCase().includes(q) ||
-      (row.chapterLabel || '').toLowerCase().includes(q) ||
-      (meta.addedDay ? `day ${meta.addedDay}`.includes(q) : false)
+      (row.chapterLabel || '').toLowerCase().includes(q)
   );
 }
 
-function renderFlashcardsView() {
-  const chapters = getChaptersSummary();
-  const addedItems = getAddedFlashcardRows();
+/* ==========================================================================
+   Master Render
+   ========================================================================== */
 
-  // Populate Random Deck Source <select> with dynamic Chapters!
-  const prevSource = els.randSourceSelect.value || 'added';
-  els.randSourceSelect.innerHTML = `
-    <option value="added">已收錄的閃卡 (${addedItems.length})</option>
-    <option value="pending">待複習閃卡 (${addedItems.filter((x) => !x.meta.mastered).length})</option>
-    <option value="all-doc">原檔全部題目 (${state.doc.rows.length})</option>
-    ${chapters
-      .map((ch) => `<option value="${escapeAttr(ch.chapterKey)}">只抽 ${escapeHtml(ch.chapterShort)} (${ch.rows.length} 題)</option>`)
-      .join('')}
-  `;
-  if ([...els.randSourceSelect.options].some((o) => o.value === prevSource)) {
-    els.randSourceSelect.value = prevSource;
+function renderAll() {
+  const labels = { home: 'Home', flashcards: 'Flashcards', docs: 'Docs 原檔', cloud: '雲端與設定' };
+  els.topbarBreadcrumb.textContent = labels[state.activeNav] || 'Home';
+  els.sidebarSubLabel.textContent = labels[state.activeNav] || 'Home';
+  els.activeFileCaption.textContent = state.doc.fileName;
+
+  els.navBtns.forEach((b) => b.classList.toggle('active', b.dataset.nav === state.activeNav));
+  els.viewHome.classList.toggle('active', state.activeNav === 'home');
+  els.viewFlashcards.classList.toggle('active', state.activeNav === 'flashcards');
+  els.viewDocs.classList.toggle('active', state.activeNav === 'docs');
+  els.viewCloud.classList.toggle('active', state.activeNav === 'cloud');
+
+  if (state.activeNav === 'home') renderHomeView();
+  if (state.activeNav === 'flashcards') renderFlashcardsView();
+  if (state.activeNav === 'docs') renderDocsView();
+  if (state.activeNav === 'cloud') renderCloudView();
+}
+
+/* ==========================================================================
+   VIEW 1: HOME
+   ========================================================================== */
+
+function renderHomeView() {
+  const added = getAddedFlashcards();
+  const chapters = groupRowsByChapter(state.doc.rows);
+  const mastered = added.filter((x) => x.meta.mastered).length;
+
+  els.heroDayLabel.textContent = `Day ${state.currentDay}`;
+  els.heroMasteryTitle.textContent = `已掌握 ${mastered} / ${added.length} 張`;
+  els.heroMasterySub.textContent = `原檔共 ${state.doc.rows.length} 題`;
+
+  els.tileFcValue.textContent = `${added.length} Cards`;
+  els.tileStudyValue.textContent = /chem/i.test(state.doc.fileName)
+    ? 'Chemistry'
+    : /phys/i.test(state.doc.fileName)
+      ? 'Physics'
+      : 'Biology';
+  els.tileDocsValue.textContent = `${chapters.length} Chapters`;
+
+  els.chartModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.chartMode === state.chartMode));
+
+  let bars = [];
+  if (state.chartMode === 'day') {
+    const maxD = Math.max(state.currentDay, 5);
+    for (let d = 1; d <= Math.min(maxD + 1, 7); d++) {
+      bars.push({
+        label: `D${d}`,
+        count: added.filter((x) => x.meta.addedDay === d).length,
+        hl: d === state.currentDay,
+        scope: `day-${d}`,
+      });
+    }
+  } else {
+    bars = chapters.slice(0, 7).map((ch, idx) => ({
+      label: ch.chapterShort,
+      count: ch.rows.length,
+      hl: idx === 0,
+      scope: ch.chapterKey,
+    }));
   }
 
-  // Mode Tabs
-  els.fcModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.fcMode === state.fcMode));
+  const maxB = Math.max(...bars.map((b) => b.count), 1);
+  els.homeBarChart.innerHTML = bars
+    .map((b) => {
+      const pct = b.count === 0 ? 16 : Math.max(24, Math.round((b.count / maxB) * 100));
+      return `
+        <div class="capsule-bar-col ${b.hl ? 'is-highlight' : ''}" data-home-bar-scope="${escapeAttr(b.scope)}">
+          <span style="font-size: 0.72rem; font-weight: 700; color: var(--ink-secondary)">${b.count}</span>
+          <div class="capsule-bar-pill" style="height: ${pct}%"></div>
+          <span style="font-size: 0.72rem; color: var(--ink-muted)">${escapeHtml(b.label)}</span>
+        </div>
+      `;
+    })
+    .join('');
 
-  // Scope Filter Tabs (All, Days, Chapters)
-  const days = [...new Set(addedItems.map((x) => x.meta.addedDay))].sort((a, b) => a - b);
-  const scopeItems = [
-    { key: 'all', label: `全部 (${addedItems.length})` },
+  els.homeSegmentedBar.innerHTML = chapters
+    .slice(0, 10)
+    .map((ch, i) => `<div class="segmented-hbar-seg" style="flex-grow: ${ch.rows.length}; background: ${BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length]}"></div>`)
+    .join('');
+
+  els.homeChapterBreakdown.innerHTML = chapters
+    .map((ch, i) => {
+      const color = BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length];
+      const addedInCh = ch.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length;
+      const pct = Math.round((addedInCh / Math.max(ch.rows.length, 1)) * 100);
+      return `
+        <div class="chapter-break-row" data-home-jump-ch="${escapeAttr(ch.chapterKey)}">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}"></span>
+          <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${escapeHtml(ch.chapterShort)}</strong>
+          <div class="break-track"><div class="break-fill" style="width: ${Math.max(pct, addedInCh ? 12 : 4)}%; background: ${color}"></div></div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--ink-secondary)">${addedInCh}/${ch.rows.length}</span>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+/* ==========================================================================
+   VIEW 2: STUDY-FIRST SIMULTANEOUS FLASHCARDS (Swipeable + Big Controls)
+   ========================================================================== */
+
+function renderFlashcardsView() {
+  const chapters = groupRowsByChapter(state.doc.rows);
+  const added = getAddedFlashcards();
+  const days = [...new Set(added.map((x) => x.meta.addedDay))].sort((a, b) => a - b);
+
+  // Horizontal Scrollable Scope Pills
+  const scopes = [
+    { key: 'all', label: added.length > 0 ? `已收錄 (${added.length})` : `全部題目 (${state.doc.rows.length})` },
     { key: 'pending', label: '待複習' },
     ...days.map((d) => ({ key: `day-${d}`, label: `Day ${d}` })),
-    ...chapters.map((ch) => ({ key: ch.chapterKey, label: ch.chapterShort })),
+    ...chapters.map((c) => ({ key: c.chapterKey, label: c.chapterShort })),
   ];
-  els.fcScopeTabs.innerHTML = scopeItems
+
+  els.fcScopeRail.innerHTML = scopes
     .map(
-      (t) => `
-      <button class="pill-tab ${!state.customRandomDeckIds && state.fcScope === t.key ? 'active' : ''}" data-fc-scope="${escapeAttr(t.key)}" type="button">
-        ${escapeHtml(t.label)}
-      </button>
-    `
+      (s) =>
+        `<button class="rail-chip ${!state.customRandomDeckIds && state.fcScope === s.key ? 'active' : ''}" data-fc-scope="${escapeAttr(s.key)}" type="button">${escapeHtml(s.label)}</button>`
     )
     .join('');
 
-  els.btnFcClearRandomDeck.style.display = state.customRandomDeckIds ? 'inline-flex' : 'none';
+  els.btnFcClearRandom.style.display = state.customRandomDeckIds ? 'inline-flex' : 'none';
+  els.btnFcModeToggle.textContent = state.fcViewMode === 'single' ? '📋 切換列表總覽' : '🗂 切回單卡專注';
 
-  const candidates = getCurrentFlashcardCandidates();
-  if (candidates.length === 0) {
-    els.randomQuizBanner.style.display = 'none';
-    els.fcCardsList.innerHTML = `
-      <div class="surface-card sq-card" style="text-align: center; padding: 48px 24px">
-        <h3 style="margin: 0 0 8px">這個篩選條件下還沒有閃卡</h3>
-        <p style="margin: 0 0 18px; color: var(--ink-secondary)">你可以點擊上方「🎲 隨機抽出卡組」，或前往「Docs 原檔」勾選題目加入！</p>
-        <div style="display: flex; justify-content: center; gap: 10px">
-          <button class="btn-soft accent" data-quick-goto="docs" type="button">前往 Docs 原檔收錄題目</button>
-          <button class="btn-soft" id="btn-fc-reset-scope" type="button">顯示全部已收錄閃卡</button>
-        </div>
+  const list = getFlashcardCandidates();
+  if (list.length === 0) {
+    els.fcCounterPill.textContent = '0 / 0';
+    els.fcStudyStage.innerHTML = `
+      <div class="surface-card sq-card" style="text-align: center; padding: 44px 20px">
+        <strong style="font-size: 1.05rem">這個分類目前沒有題目</strong>
+        <p style="color: var(--ink-secondary); margin: 6px 0 18px">切換其他章節，或前往 Docs 原檔收錄新題目。</p>
+        <button class="btn-soft accent" data-nav-jump="docs" type="button">前往 Docs 原檔</button>
       </div>
     `;
-    document.getElementById('btn-fc-reset-scope')?.addEventListener('click', () => {
-      state.customRandomDeckIds = null;
-      state.fcScope = 'all';
-      state.searchQuery = '';
-      els.globalSearchInput.value = '';
-      renderAll();
-    });
     return;
   }
 
-  // Random Question Focus Mode vs All-Cards Simultaneous List
-  if (state.fcMode === 'random-q') {
-    const candidateIds = candidates.map((c) => c.row.id);
-    if (
-      state.randomQueue.length !== candidateIds.length ||
-      !state.randomQueue.every((id) => candidateIds.includes(id))
-    ) {
-      state.randomQueue = shuffleArray(candidateIds);
-      state.randomCursor = 0;
-    }
-    const activeId = state.randomQueue[state.randomCursor] || candidateIds[0];
-    const activeItem = candidates.find((c) => c.row.id === activeId) || candidates[0];
+  if (state.fcIndex >= list.length) state.fcIndex = 0;
 
-    els.randomQuizBanner.style.display = 'flex';
-    els.randomPoolBadge.textContent = `🎲 無重複隨機題目 · ${state.randomCursor + 1} / ${state.randomQueue.length}`;
-    els.randomDeckCaption.textContent = state.customRandomDeckLabel || '按 R 或點擊「隨機下一題」無重複抽下一題';
+  if (state.fcViewMode === 'single') {
+    const active = list[state.fcIndex];
+    els.fcCounterPill.textContent = state.customRandomLabel
+      ? `🎲 ${state.fcIndex + 1} / ${list.length}`
+      : `${state.fcIndex + 1} / ${list.length}`;
 
-    els.fcCardsList.innerHTML = buildFlashcardHtml(activeItem);
+    els.fcStudyStage.innerHTML = `
+      ${buildStudyCardHtml(active)}
+      <div class="study-action-bar" style="margin-top: 14px">
+        <button class="btn-soft" id="btn-fc-prev" type="button">← 上一題</button>
+        <button class="btn-soft ${active.meta.mastered ? 'accent' : ''}" id="btn-fc-toggle-master" data-id="${escapeAttr(active.row.id)}" type="button">
+          ${active.meta.mastered ? '✓ 已掌握' : '標記掌握'}
+        </button>
+        <button class="btn-soft dark-ink" id="btn-fc-rand-step" type="button">🎲 隨機題目</button>
+        <button class="btn-soft accent" id="btn-fc-next" type="button">下一題 →</button>
+      </div>
+      <div style="text-align: center; font-size: 0.78rem; color: var(--ink-muted); margin-top: 10px">
+        左右滑動卡片亦可快速切換上一題 / 下一題
+      </div>
+    `;
+
+    attachCardSwipe();
   } else {
-    els.randomQuizBanner.style.display = state.customRandomDeckIds ? 'flex' : 'none';
-    if (state.customRandomDeckIds) {
-      els.randomPoolBadge.textContent = `🎲 ${state.customRandomDeckLabel}`;
-      els.randomDeckCaption.textContent = '目前顯示你剛剛隨機抽出的閃卡組（按「隨機抽一題」可切換單題無重複測驗）';
-    }
-    els.fcCardsList.innerHTML = candidates.map((item) => buildFlashcardHtml(item)).join('');
+    // Paginated List View (20 cards max per page = 60fps smooth!)
+    const totalPages = Math.max(1, Math.ceil(list.length / FC_LIST_PAGE_SIZE));
+    if (state.fcListPage >= totalPages) state.fcListPage = 0;
+    const slice = list.slice(state.fcListPage * FC_LIST_PAGE_SIZE, (state.fcListPage + 1) * FC_LIST_PAGE_SIZE);
+    els.fcCounterPill.textContent = `共 ${list.length} 題`;
+
+    els.fcStudyStage.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        ${slice.map((item) => buildStudyCardHtml(item)).join('')}
+      </div>
+      ${
+        totalPages > 1
+          ? `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px">
+          <button class="btn-soft sm" id="btn-fc-list-prev" ${state.fcListPage === 0 ? 'disabled' : ''}>← 上一頁</button>
+          <span style="font-size: 0.84rem; font-weight: 700">第 ${state.fcListPage + 1} / ${totalPages} 頁</span>
+          <button class="btn-soft sm" id="btn-fc-list-next" ${state.fcListPage >= totalPages - 1 ? 'disabled' : ''}>下一頁 →</button>
+        </div>
+      `
+          : ''
+      }
+    `;
   }
 }
 
-function buildFlashcardHtml({ row, meta }) {
+function buildStudyCardHtml({ row, meta }) {
   const isAdded = Boolean(state.flashcardsMap[row.id]);
   const points =
     row.answerPoints && row.answerPoints.length > 0
@@ -1069,239 +734,204 @@ function buildFlashcardHtml({ row, meta }) {
   const checkedSet = new Set(meta.checkedPoints || []);
 
   return `
-    <article class="qa-flashcard sq-card ${meta.mastered ? 'is-mastered' : ''}" data-fc-id="${escapeAttr(row.id)}">
-      <div class="fc-meta-row">
-        <div class="fc-badges">
-          <span class="tag-chip" style="font-family: 'JetBrains Mono', monospace; color: var(--accent)">Q${String(row.index).padStart(2, '0')}</span>
-          <span class="tag-chip chapter-pill">${escapeHtml(row.chapterShort)}</span>
+    <article class="study-card sq-card ${meta.mastered ? 'is-mastered' : ''}" data-card-id="${escapeAttr(row.id)}">
+      <div class="study-card-head">
+        <div class="badge-group">
+          <span class="pill-badge" style="font-family: 'JetBrains Mono', monospace">Q${row.index}</span>
+          <span class="pill-badge chapter">${escapeHtml(row.chapterShort)}</span>
           ${
             isAdded
-              ? `<span class="tag-chip accent-solid" title="於 ${meta.addedDate || ''} 加入">✓ Day ${meta.addedDay} 加入</span>`
-              : `<button class="doc-add-btn" style="padding: 3px 10px; font-size: 0.72rem; border-color: var(--accent); color: var(--accent)" data-fc-quick-add="${escapeAttr(row.id)}" type="button">＋ 加入 Day ${state.currentDay} 閃卡</button>`
+              ? `<span class="pill-badge accent">✓ Day ${meta.addedDay}</span>`
+              : `<button class="btn-soft sm" data-fc-add-now="${escapeAttr(row.id)}" type="button">＋ 加入 Day ${state.currentDay}</button>`
           }
-          ${row.marks != null ? `<span class="tag-chip marks-pill">${row.marks} ${row.marks === 1 ? 'mark' : 'marks'}</span>` : ''}
+          ${row.marks != null ? `<span class="pill-badge marks">${row.marks}m</span>` : ''}
         </div>
-
-        <div class="fc-actions">
-          <button class="chip-btn" data-locate-doc="${escapeAttr(row.id)}" type="button">📄 查看 Docs 原檔</button>
-          ${
-            isAdded
-              ? `
-                <button class="chip-btn ${meta.bookmarked ? 'is-star' : ''}" data-fc-star="${escapeAttr(row.id)}" type="button">${meta.bookmarked ? '★ 星標' : '☆ 星標'}</button>
-                <button class="chip-btn ${meta.mastered ? 'is-on' : ''}" data-fc-master="${escapeAttr(row.id)}" type="button">${meta.mastered ? '✓ 已掌握' : '標記掌握'}</button>
-              `
-              : ''
-          }
-        </div>
+        <button class="btn-soft sm" data-locate-doc="${escapeAttr(row.id)}" type="button">📄 原檔</button>
       </div>
 
-      <!-- Question & Answer Simultaneously Displayed Side-by-Side -->
-      <div class="qa-dual-grid">
-        <div class="qa-q-pane sq-md">
-          <div class="pane-eyebrow">
-            <span>QUESTION · 問題</span>
-            ${row.marks != null ? `<span>(${row.marks}m)</span>` : ''}
-          </div>
-          <p class="q-copy">${highlightText(row.question, state.searchQuery)}</p>
-          ${row.source ? `<div style="margin-top: auto; font-size: 0.74rem; color: var(--ink-muted)">*${highlightText(row.source, state.searchQuery)}</div>` : ''}
-          ${
-            row.questionImages?.length
-              ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row.questionImages
-                  .map((src) => `<img src="${src}" style="max-height:180px;border-radius:10px" alt="題目附圖"/>`)
-                  .join('')}</div>`
-              : ''
-          }
+      <div class="study-qa-grid">
+        <div class="study-q-pane sq-md">
+          <span class="pane-label">QUESTION · 問題</span>
+          <p class="study-q-text">${highlightText(row.question, state.searchQuery)}</p>
+          ${row.source ? `<div style="margin-top: auto; font-size: 0.78rem; color: var(--ink-muted)">*${escapeHtml(row.source)}</div>` : ''}
         </div>
 
-        <div class="qa-a-pane sq-md">
-          <div class="pane-eyebrow">
-            <span>ANSWER · 答案與給分點（同步顯示）</span>
-            <span>點擊單條核對</span>
-          </div>
-          <ul class="a-points-list">
+        <div class="study-a-pane sq-md">
+          <span class="pane-label">ANSWER · 答案與給分點（同步顯示）</span>
+          <ul class="study-a-list">
             ${points
               .map((pt, pIdx) => {
-                const isChecked = checkedSet.has(pIdx);
+                const checked = checkedSet.has(pIdx);
                 return `
-                  <li class="a-point-item sq-sm ${isChecked ? 'checked' : ''}" data-fc-pt="${escapeAttr(row.id)}" data-pt-idx="${pIdx}">
-                    <span style="display: flex; align-items: flex-start; gap: 9px">
-                      <span class="pt-check">✓</span>
+                  <li class="study-a-item sq-sm ${checked ? 'checked' : ''}" data-fc-pt="${escapeAttr(row.id)}" data-pt-idx="${pIdx}">
+                    <span style="display: flex; align-items: flex-start; gap: 10px">
+                      <span class="pt-box">✓</span>
                       <span>${highlightText(pt.text, state.searchQuery)}</span>
                     </span>
-                    ${pt.marks != null ? `<span class="tag-chip marks-pill" style="padding: 2px 7px">(${pt.marks})</span>` : ''}
+                    ${pt.marks != null ? `<span class="pill-badge marks" style="padding: 2px 8px">(${pt.marks})</span>` : ''}
                   </li>
                 `;
               })
               .join('')}
           </ul>
-          ${
-            row.answerImages?.length
-              ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row.answerImages
-                  .map((src) => `<img src="${src}" style="max-height:180px;border-radius:10px" alt="答案附圖"/>`)
-                  .join('')}</div>`
-              : ''
-          }
         </div>
       </div>
     </article>
   `;
 }
 
-/* ==========================================================================
-   VIEW 3: DOCS EDITOR (Chapter-Sorted + Live Auto-Sync to Google Drive!)
-   ========================================================================== */
-
-function renderDocsSyncStatus() {
-  const pill = els.docsDriveSyncPill;
-  if (!driveClient.isConnected()) {
-    pill.className = 'sync-status-pill';
-    pill.textContent = '本地自動儲存中（連線 Drive 後即時回寫）';
-    return;
-  }
-  if (state.driveSyncStatus === 'pending') {
-    pill.className = 'sync-status-pill syncing';
-    pill.textContent = '✏️ 編輯中… 2.5 秒後自動同步至 Google Drive';
-  } else if (state.driveSyncStatus === 'syncing') {
-    pill.className = 'sync-status-pill syncing';
-    pill.textContent = '☁ 正在以 XML 就地修補寫回 Google Drive…';
-  } else if (state.driveSyncStatus === 'synced') {
-    pill.className = 'sync-status-pill synced';
-    pill.textContent = `✓ 已同步至 Google Drive 原檔 (${state.driveSyncTime})`;
-  } else if (state.driveSyncStatus === 'error') {
-    pill.className = 'sync-status-pill';
-    pill.textContent = '⚠ Drive 同步失敗，請點「立即寫回」重試';
-  } else {
-    pill.className = 'sync-status-pill synced';
-    pill.textContent = '☁ Google Drive 自動回寫已待命';
-  }
+function attachCardSwipe() {
+  const card = els.fcStudyStage.querySelector('.study-card');
+  if (!card) return;
+  let startX = 0;
+  let startY = 0;
+  card.addEventListener(
+    'touchstart',
+    (e) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    },
+    { passive: true }
+  );
+  card.addEventListener(
+    'touchend',
+    (e) => {
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = e.changedTouches[0].clientY - startY;
+      if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+        const list = getFlashcardCandidates();
+        if (!list.length) return;
+        state.fcIndex = (state.fcIndex + (dx < 0 ? 1 : -1) + list.length) % list.length;
+        renderFlashcardsView();
+      }
+    },
+    { passive: true }
+  );
 }
 
-function renderDocsView() {
-  renderDocsSyncStatus();
+/* ==========================================================================
+   VIEW 3: DOCS READER & EXPLICIT EDIT MODE (1 Chapter at a Time = 60fps!)
+   ========================================================================== */
 
-  if (document.activeElement !== els.docsTitleEditable) {
-    els.docsTitleEditable.textContent = state.doc.title;
+function renderDocsView() {
+  const chapters = groupRowsByChapter(state.doc.rows);
+  if (!chapters.some((c) => c.chapterKey === state.docsSelectedChapter)) {
+    state.docsSelectedChapter = chapters[0]?.chapterKey || 'all';
   }
 
-  // Naturally sorted Chapter groups!
-  const chapterGroups = groupRowsByChapter(state.doc.rows);
-  els.docsChapterPills.innerHTML = `
-    <button class="pill-tab ${state.docsChapterFilter === 'all' ? 'active' : ''}" data-doc-ch="all" type="button">
-      全部 (${state.doc.rows.length})
-    </button>
-    ${chapterGroups
-      .map((g) => {
-        const added = g.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length;
-        return `
-          <button class="pill-tab ${state.docsChapterFilter === g.chapterKey ? 'active' : ''}" data-doc-ch="${escapeAttr(g.chapterKey)}" type="button">
-            ${escapeHtml(g.chapterShort)} (${added}/${g.rows.length})
-          </button>
-        `;
-      })
-      .join('')}
-  `;
-
-  const q = state.searchQuery.trim().toLowerCase();
-  const visibleGroups = chapterGroups
-    .filter((g) => state.docsChapterFilter === 'all' || g.chapterKey === state.docsChapterFilter)
-    .map((g) => ({
-      ...g,
-      rows: g.rows.filter((r) => {
-        if (!q) return true;
-        return (
-          r.questionRaw.toLowerCase().includes(q) ||
-          r.answerRaw.toLowerCase().includes(q) ||
-          (r.chapterLabel || '').toLowerCase().includes(q)
-        );
-      }),
-    }))
-    .filter((g) => g.rows.length > 0);
-
-  const visibleRowCount = visibleGroups.reduce((s, g) => s + g.rows.length, 0);
-  const visibleAddedCount = visibleGroups.reduce(
-    (s, g) => s + g.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length,
-    0
-  );
-  els.docsAddedSummary.textContent = `已加入閃卡 ${visibleAddedCount} / ${visibleRowCount} 題`;
-  els.btnDocsAddAll.textContent = `將剩餘 ${visibleRowCount - visibleAddedCount} 題加入 Day ${state.currentDay}`;
-  els.btnDocsAddAll.style.display = visibleAddedCount < visibleRowCount ? 'inline-flex' : 'none';
-
-  els.docsGroupedBody.innerHTML = visibleGroups
-    .map((group) => {
-      const groupAdded = group.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length;
+  // Horizontal scrollable Chapter pills
+  els.docsChapterRail.innerHTML = chapters
+    .map((ch) => {
+      const added = ch.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length;
+      const active = ch.chapterKey === state.docsSelectedChapter;
       return `
-        <div class="docs-chapter-group-header sq-sm" id="doc-ch-${escapeAttr(group.chapterKey)}">
-          <span>📚 ${escapeHtml(group.chapterLabel)}</span>
-          <span style="font-size: 0.76rem; opacity: 0.78">已收錄 ${groupAdded} / ${group.rows.length} 題</span>
-        </div>
-        ${group.rows
-          .map((row) => {
-            const addedMeta = state.flashcardsMap[row.id];
-            const isAdded = Boolean(addedMeta);
-            return `
-              <div class="doc-row-block ${isAdded ? 'is-added-row' : ''}" id="doc-row-${escapeAttr(row.id)}" data-doc-row-id="${escapeAttr(row.id)}">
-                <div class="doc-cell">
-                  <div class="doc-cell-editable" contenteditable="true" spellcheck="false" data-edit-cell="q" data-row-id="${escapeAttr(row.id)}">${row.questionHtml}</div>
-                  <span class="doc-row-num-tag">
-                    #${String(row.index).padStart(2, '0')} · ${escapeHtml(row.chapterShort)}
-                    ${isAdded ? `<strong style="color: var(--accent)">✓ 已加入 (Day ${addedMeta.addedDay})</strong>` : ''}
-                  </span>
-                </div>
-
-                <div class="doc-cell">
-                  <div class="doc-cell-editable" contenteditable="true" spellcheck="false" data-edit-cell="a" data-row-id="${escapeAttr(row.id)}">${row.answerHtml}</div>
-
-                  <div class="doc-row-action-bar">
-                    ${
-                      isAdded
-                        ? `
-                          <button class="doc-added-badge" data-doc-jump-fc="${escapeAttr(row.id)}" type="button" title="於 ${addedMeta.addedDate || ''} 加入，點擊前往閃卡">
-                            ✓ 已加入 · Day ${addedMeta.addedDay}
-                          </button>
-                          <button class="doc-mini-btn" data-doc-unadd="${escapeAttr(row.id)}" type="button" title="取消加入閃卡">✕</button>
-                        `
-                        : `
-                          <button class="doc-add-btn" data-doc-add="${escapeAttr(row.id)}" type="button">
-                            ＋ 加入 Flashcard (Day ${state.currentDay})
-                          </button>
-                        `
-                    }
-                    <button class="doc-mini-btn" data-doc-toggle-break="${escapeAttr(row.id)}" type="button" title="插入/移除分頁符號">⏎</button>
-                  </div>
-                </div>
-              </div>
-              ${row.pageBreakAfter ? `<div class="doc-page-break">Page break</div>` : ''}
-            `;
-          })
-          .join('')}
+        <button class="rail-chip ${active ? 'active' : ''}" data-doc-ch="${escapeAttr(ch.chapterKey)}" type="button">
+          ${escapeHtml(ch.chapterShort)} (${added}/${ch.rows.length})
+        </button>
       `;
     })
     .join('');
-}
 
-/* ==========================================================================
-   VIEW 4: GOOGLE DRIVE VIEW
-   ========================================================================== */
+  els.btnDocsEditToggle.textContent = state.docsEditMode ? '✓ 完成編輯' : '✏️ 開啟編輯模式';
+  els.btnDocsEditToggle.classList.toggle('accent', state.docsEditMode);
+  els.docsEditToolbar.classList.toggle('active', state.docsEditMode || Boolean(state.editingSingleRowId));
 
-function renderDriveView() {
-  const connected = driveClient.isConnected();
-  els.driveStatusBadge.textContent = connected
-    ? `✓ 已連線 (${driveClient.mode === 'oauth' ? 'OAuth 2.0' : 'Apps Script'})`
-    : '未連線';
-  els.driveStatusBadge.classList.toggle('accent-solid', connected);
-
-  els.driveModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.driveMode === driveClient.mode));
-  els.driveOauthBox.style.display = driveClient.mode === 'oauth' ? 'flex' : 'none';
-  els.driveScriptBox.style.display = driveClient.mode === 'apps-script' ? 'flex' : 'none';
-  els.btnDriveDisconnect.style.display = connected ? 'inline-flex' : 'none';
-
-  if (!connected) {
-    els.driveFilesContainer.innerHTML = `<div style="padding: 20px; text-align: center; font-size: 0.84rem; color: var(--ink-muted)">尚未連線 Google Drive。連線後會自動建立並讀取 <code>flashcard/</code> 資料夾內的 .docx 原檔。</div>`;
+  const currentGroup = chapters.find((c) => c.chapterKey === state.docsSelectedChapter) || chapters[0];
+  if (!currentGroup) {
+    els.docsRowsContainer.innerHTML = `<p style="opacity: 0.7">尚無內容</p>`;
     return;
   }
 
-  if (state.driveFiles.length === 0) {
-    els.driveFilesContainer.innerHTML = `<div style="padding: 20px; text-align: center; font-size: 0.84rem; color: var(--ink-muted)"><code>flashcard/</code> 目前沒有文件。點左側「☁ 同步全部閃卡與原檔到 Drive」即可上傳！</div>`;
+  const q = state.searchQuery.trim().toLowerCase();
+  const filteredRows = currentGroup.rows.filter((r) => {
+    if (!q) return true;
+    return r.questionRaw.toLowerCase().includes(q) || r.answerRaw.toLowerCase().includes(q);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / DOCS_PAGE_SIZE));
+  if (state.docsPage >= totalPages) state.docsPage = 0;
+  const pageRows = filteredRows.slice(state.docsPage * DOCS_PAGE_SIZE, (state.docsPage + 1) * DOCS_PAGE_SIZE);
+
+  const addedInCh = currentGroup.rows.filter((r) => Boolean(state.flashcardsMap[r.id])).length;
+  els.docsChapterHeading.textContent = currentGroup.chapterLabel;
+  els.docsChapterCount.textContent = `已收錄 ${addedInCh} / ${currentGroup.rows.length} 題`;
+  els.btnDocsAddAllCh.textContent = `＋ 本章加入 Day ${state.currentDay}`;
+
+  els.docsRowsContainer.innerHTML = pageRows
+    .map((row) => {
+      const meta = state.flashcardsMap[row.id];
+      const isAdded = Boolean(meta);
+      const isEditable = state.docsEditMode || state.editingSingleRowId === row.id;
+
+      return `
+        <div class="doc-row-card ${isAdded ? 'is-added' : ''} ${isEditable ? 'is-editing' : ''}" id="doc-row-${escapeAttr(row.id)}">
+          <div class="doc-row-cells">
+            <div class="doc-cell">
+              <div
+                class="doc-cell-content"
+                contenteditable="${isEditable ? 'true' : 'false'}"
+                spellcheck="false"
+                data-edit-cell="q"
+                data-row-id="${escapeAttr(row.id)}"
+              >${row.questionHtml}</div>
+            </div>
+            <div class="doc-cell">
+              <div
+                class="doc-cell-content"
+                contenteditable="${isEditable ? 'true' : 'false'}"
+                spellcheck="false"
+                data-edit-cell="a"
+                data-row-id="${escapeAttr(row.id)}"
+              >${row.answerHtml}</div>
+            </div>
+          </div>
+
+          <div class="doc-row-footer">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; opacity: 0.72">
+              #${row.index} · ${escapeHtml(row.chapterShort)}
+            </span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <button class="btn-soft sm" data-doc-edit-row="${escapeAttr(row.id)}" type="button">
+                ${isEditable ? '✓ 完成' : '✏️ 編輯'}
+              </button>
+              ${
+                isAdded
+                  ? `
+                    <button class="btn-soft accent sm" data-doc-unadd="${escapeAttr(row.id)}" type="button" title="點擊可取消加入">
+                      ✓ 已加入 · Day ${meta.addedDay}
+                    </button>
+                  `
+                  : `
+                    <button class="btn-soft sm" data-doc-add="${escapeAttr(row.id)}" type="button">
+                      ＋ 加入閃卡 (Day ${state.currentDay})
+                    </button>
+                  `
+              }
+            </div>
+          </div>
+        </div>
+        ${row.pageBreakAfter ? `<div class="doc-page-break">Page break</div>` : ''}
+      `;
+    })
+    .join('');
+
+  els.docsPaginationBar.innerHTML =
+    totalPages > 1
+      ? `
+        <button class="btn-soft sm" id="btn-docs-prev-page" ${state.docsPage === 0 ? 'disabled' : ''}>← 上一頁</button>
+        <span style="font-size: 0.84rem; font-weight: 700">第 ${state.docsPage + 1} / ${totalPages} 頁</span>
+        <button class="btn-soft sm" id="btn-docs-next-page" ${state.docsPage >= totalPages - 1 ? 'disabled' : ''}>下一頁 →</button>
+      `
+      : '';
+}
+
+/* ==========================================================================
+   VIEW 4: CLOUD & APPEARANCE
+   ========================================================================== */
+
+function renderCloudView() {
+  if (!state.driveFiles.length) {
+    els.driveFilesContainer.innerHTML = `<div style="padding: 14px; font-size: 0.84rem; color: var(--ink-muted)">尚未列出檔案，可點擊上方「🔄 立即重新連線並讀取」或「看全部 Drive」。</div>`;
     return;
   }
 
@@ -1310,17 +940,16 @@ function renderDriveView() {
       (f) => `
       <div class="drive-file-item sq-sm">
         <div style="min-width: 0">
-          <strong style="display: block; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${escapeHtml(f.name)}</strong>
-          <span style="font-size: 0.72rem; color: var(--ink-muted)">${f.mimeType?.includes('google-apps.document') ? 'Google Docs' : '.docx 原檔'}</span>
+          <strong style="display: block; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${escapeHtml(f.name)}</strong>
+          <span style="font-size: 0.74rem; color: var(--ink-muted)">${f.id === state.doc.driveFileId ? '✓ 目前已載入' : '.docx / Docs'}</span>
         </div>
         <button
-          class="btn-soft accent"
-          style="padding: 6px 12px; font-size: 0.75rem; flex-shrink: 0"
-          data-drive-open-id="${escapeAttr(f.id)}"
-          data-drive-open-name="${escapeAttr(f.name)}"
-          data-drive-open-mime="${escapeAttr(f.mimeType || '')}"
+          class="btn-soft accent sm"
+          data-open-drive-id="${escapeAttr(f.id)}"
+          data-open-drive-name="${escapeAttr(f.name)}"
+          data-open-drive-mime="${escapeAttr(f.mimeType || '')}"
           type="button"
-        >開啟並同步編輯</button>
+        >開啟</button>
       </div>
     `
     )
@@ -1328,352 +957,349 @@ function renderDriveView() {
 }
 
 /* ==========================================================================
-   Event Wiring
+   Random Sheet & Random Question Engine
+   ========================================================================== */
+
+function openRandomSheet() {
+  const chapters = groupRowsByChapter(state.doc.rows);
+  const added = getAddedFlashcards();
+  els.randSourceSelect.innerHTML = `
+    <option value="added">已收錄的閃卡 (${added.length} 題)</option>
+    <option value="pending">待複習閃卡 (${added.filter((x) => !x.meta.mastered).length} 題)</option>
+    <option value="all-doc">整份原檔全部題目 (${state.doc.rows.length} 題)</option>
+    ${chapters.map((c) => `<option value="${escapeAttr(c.chapterKey)}">只抽 ${escapeHtml(c.chapterShort)} (${c.rows.length} 題)</option>`).join('')}
+  `;
+  els.randomDeckSheet.classList.add('open');
+}
+
+function startRandomDeck(source, countVal) {
+  let pool = [];
+  if (source === 'added') pool = state.doc.rows.filter((r) => Boolean(state.flashcardsMap[r.id]));
+  else if (source === 'pending') pool = state.doc.rows.filter((r) => state.flashcardsMap[r.id] && !state.flashcardsMap[r.id].mastered);
+  else if (source.startsWith('ch-')) pool = state.doc.rows.filter((r) => r.chapterKey === source);
+  else pool = [...state.doc.rows];
+
+  if (!pool.length) pool = [...state.doc.rows];
+  const shuffled = shuffleArray(pool);
+  const picked = countVal === 'all' ? shuffled : shuffled.slice(0, Math.min(Number(countVal) || 5, shuffled.length));
+
+  state.customRandomDeckIds = picked.map((r) => r.id);
+  state.customRandomLabel = `隨機 ${picked.length} 題`;
+  state.fcIndex = 0;
+  state.fcViewMode = 'single';
+  state.activeNav = 'flashcards';
+  els.randomDeckSheet.classList.remove('open');
+  renderAll();
+  showToast(`🎲 已隨機抽出 ${picked.length} 張閃卡！`);
+}
+
+function stepNoRepeatRandomQuestion() {
+  const list = getFlashcardCandidates();
+  if (!list.length) return;
+  const ids = list.map((x) => x.row.id);
+
+  if (state.randomQueue.length !== ids.length || !state.randomQueue.every((id) => ids.includes(id))) {
+    state.randomQueue = shuffleArray(ids);
+    state.randomCursor = 0;
+  } else {
+    state.randomCursor += 1;
+    if (state.randomCursor >= state.randomQueue.length) {
+      state.randomQueue = shuffleArray(ids);
+      state.randomCursor = 0;
+      showToast('🎉 本輪全部題目已無重複抽完，重新洗牌！');
+    }
+  }
+
+  const targetId = state.randomQueue[state.randomCursor];
+  const idx = list.findIndex((x) => x.row.id === targetId);
+  state.fcIndex = idx >= 0 ? idx : 0;
+  state.fcViewMode = 'single';
+  renderFlashcardsView();
+}
+
+/* ==========================================================================
+   Events
    ========================================================================== */
 
 function bindEvents() {
-  // Sidebar Collapse / Expand
-  els.btnCollapseSidebar.addEventListener('click', () => {
-    state.sidebarCollapsed = true;
-    renderAll();
-  });
-  els.btnExpandSidebar.addEventListener('click', () => {
-    state.sidebarCollapsed = !state.sidebarCollapsed;
-    renderAll();
-  });
-
-  // Navigation
-  els.sideNavBtns.forEach((btn) => {
+  // Navigation (Desktop Sidebar + iPad Floating Bottom Tab Bar)
+  els.navBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       state.activeNav = btn.dataset.nav;
-      if (window.innerWidth < 860) state.sidebarCollapsed = true;
       renderAll();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
 
-  els.btnSidebarProfile.addEventListener('click', () => {
-    state.activeNav = 'drive';
-    renderAll();
-  });
-  els.btnTopAvatar.addEventListener('click', () => {
-    state.activeNav = 'drive';
-    renderAll();
-  });
-
-  // Top Bar: 中/EN Language Switch
-  els.langBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.appearance.lang = btn.dataset.lang;
-      applyAppearance();
-      persistLocal();
-      renderAll();
-    });
-  });
-
-  // Top Bar: Inline 5-Color Accent Swatch Pill (IMG_9403)
+  // Topbar Theme Dots, S9 Toggle, Search, Quick Reload
   els.paletteDots.forEach((dot) => {
     dot.addEventListener('click', () => {
       const p = dot.dataset.setPalette;
       state.appearance.palette = p;
-      state.appearance.customAccentHex = PALETTE_ACCENTS[p] || '#D96F52';
+      state.appearance.customAccentHex = PALETTE_ACCENTS[p];
       applyAppearance();
-      persistLocal();
+      persistMeta();
     });
   });
 
-  // Top Bar & Settings: Samsung Galaxy S9 Live Wallpaper Mode Toggle
   const toggleS9 = () => {
     state.appearance.s9Mode = !state.appearance.s9Mode;
     applyAppearance();
-    persistLocal();
-    showToast(state.appearance.s9Mode ? '✦ 已開啟 Samsung Galaxy S9 動態壁紙＋毛玻璃模式' : '已切回柔和奶油粉彩介面');
+    persistMeta();
   };
   els.btnS9ModeToggle.addEventListener('click', toggleS9);
   els.settingsS9Checkbox.addEventListener('change', (e) => {
     state.appearance.s9Mode = e.target.checked;
     applyAppearance();
-    persistLocal();
+    persistMeta();
   });
 
-  // Settings: Custom Accent, Continuous Curvature, S9 Preset & Speed
-  els.settingsCustomAccent.addEventListener('input', (e) => {
-    state.appearance.customAccentHex = e.target.value;
-    applyAppearance();
-    persistLocal();
-  });
-  els.settingsRadiusSlider.addEventListener('input', (e) => {
-    state.appearance.sqRadius = Number(e.target.value);
-    applyAppearance();
-    persistLocal();
-  });
-  els.settingsKSlider.addEventListener('input', (e) => {
-    state.appearance.sqCurvature = Number(e.target.value);
-    applyAppearance();
-    persistLocal();
-  });
-  els.wpPresetBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.appearance.wpPreset = btn.dataset.wpPreset;
-      applyAppearance();
-      persistLocal();
-    });
-  });
-  els.settingsWpSpeed.addEventListener('input', (e) => {
-    state.appearance.wpSpeed = Number(e.target.value);
-    applyAppearance();
-    persistLocal();
-  });
-
-  // Global Search + ⌘K / Ctrl+K + Keyboard Shortcut R for Random Next Question
   els.globalSearchInput.addEventListener('input', (e) => {
     state.searchQuery = e.target.value;
+    state.docsPage = 0;
+    state.fcIndex = 0;
     renderAll();
   });
 
-  window.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-      e.preventDefault();
-      els.globalSearchInput.focus();
-      return;
-    }
-    if (e.target.matches('input, textarea, select, [contenteditable="true"]')) return;
-    if (state.activeNav === 'flashcards' && (e.key.toLowerCase() === 'r' || e.key === 'ArrowRight')) {
-      e.preventDefault();
-      stepRandomQuestion(false);
-    }
-  });
+  els.btnDriveQuickReload.addEventListener('click', () => autoConnectDriveAndLoad(false));
 
-  // Day Stepper (- / +)
+  // Home interactions
   els.btnDayMinus.addEventListener('click', () => {
     state.currentDay = Math.max(1, state.currentDay - 1);
-    persistLocal();
+    persistMeta();
     renderAll();
   });
   els.btnDayPlus.addEventListener('click', () => {
     state.currentDay += 1;
-    persistLocal();
+    persistMeta();
     renderAll();
   });
 
-  // Home Hero & 4 Pastel Cards Actions
   els.btnHeroResume.addEventListener('click', () => {
     state.activeNav = 'flashcards';
-    state.fcMode = 'list';
     renderAll();
   });
   els.btnHeroRandomQ.addEventListener('click', () => {
     state.activeNav = 'flashcards';
-    stepRandomQuestion(true);
+    stepNoRepeatRandomQuestion();
+    renderAll();
   });
-  els.btnSidebarRandom.addEventListener('click', () => buildRandomFlashcardDeck('added', '5'));
+
+  els.btnSidebarRandom.addEventListener('click', openRandomSheet);
+  els.cardHomeRandom.addEventListener('click', openRandomSheet);
   els.cardHomeFlashcards.addEventListener('click', () => {
     state.activeNav = 'flashcards';
-    state.customRandomDeckIds = null;
     renderAll();
   });
   els.cardHomeStudy.addEventListener('click', () => {
     state.activeNav = 'docs';
     renderAll();
   });
-  els.cardHomeRandom.addEventListener('click', () => buildRandomFlashcardDeck('added', '5'));
   els.cardHomeDocs.addEventListener('click', () => {
     state.activeNav = 'docs';
     renderAll();
   });
 
-  // Home Chart A/B Toggle & Bar Clicks
-  els.chartModeBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.chartMode = btn.dataset.chartMode;
-      renderHomeDashboard();
+  els.chartModeBtns.forEach((b) => {
+    b.addEventListener('click', () => {
+      state.chartMode = b.dataset.chartMode;
+      renderHomeView();
     });
   });
 
   els.homeBarChart.addEventListener('click', (e) => {
-    const col = e.target.closest('[data-bar-key]');
+    const col = e.target.closest('[data-home-bar-scope]');
     if (!col) return;
     state.customRandomDeckIds = null;
-    state.fcScope = col.dataset.barKey;
+    state.fcScope = col.dataset.homeBarScope;
+    state.fcIndex = 0;
     state.activeNav = 'flashcards';
     renderAll();
   });
 
   els.homeChapterBreakdown.addEventListener('click', (e) => {
-    const row = e.target.closest('[data-jump-chapter-docs]');
+    const row = e.target.closest('[data-home-jump-ch]');
     if (!row) return;
-    state.docsChapterFilter = row.dataset.jumpChapterDocs;
+    state.docsSelectedChapter = row.dataset.homeJumpCh;
+    state.docsPage = 0;
     state.activeNav = 'docs';
     renderAll();
   });
 
-  els.btnHomeSyncRefresh.addEventListener('click', () => syncDocAndStateToDrive(true));
-
-  // Upload .docx + Global Drag & Drop
-  els.btnOpenDocx.addEventListener('click', () => els.fileInput.click());
-  els.fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      await handleLocalDocxUpload(file);
-      els.fileInput.value = '';
-    }
+  // Random Deck Modal Sheet
+  els.btnOpenRandomSheet.addEventListener('click', openRandomSheet);
+  els.btnCloseRandomSheet.addEventListener('click', () => els.randomDeckSheet.classList.remove('open'));
+  els.randomDeckSheet.addEventListener('click', (e) => {
+    if (e.target === els.randomDeckSheet) els.randomDeckSheet.classList.remove('open');
   });
 
-  let dragDepth = 0;
-  window.addEventListener('dragenter', (e) => {
-    if (e.dataTransfer?.types?.includes('Files')) {
-      e.preventDefault();
-      dragDepth++;
-      els.globalDropVeil.classList.add('active');
-    }
-  });
-  window.addEventListener('dragover', (e) => {
-    if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
-  });
-  window.addEventListener('dragleave', () => {
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (dragDepth === 0) els.globalDropVeil.classList.remove('active');
-  });
-  window.addEventListener('drop', async (e) => {
-    if (!e.dataTransfer?.files?.length) return;
-    e.preventDefault();
-    dragDepth = 0;
-    els.globalDropVeil.classList.remove('active');
-    await handleLocalDocxUpload(e.dataTransfer.files[0]);
-  });
-
-  // Flashcards View: Random Deck Builder + Random Question Mode Controls
-  els.btnBuildRandomDeck.addEventListener('click', () => {
-    buildRandomFlashcardDeck(els.randSourceSelect.value, els.randCountSelect.value);
-  });
-  els.btnPickRandomChapter.addEventListener('click', pickRandomChapterDeck);
-
-  els.fcModeBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.fcMode = btn.dataset.fcMode;
-      if (state.fcMode === 'random-q') {
-        stepRandomQuestion(true);
-      } else {
-        renderAll();
-      }
+  els.randCountPills.forEach((p) => {
+    p.addEventListener('click', () => {
+      state.selectedRandCount = p.dataset.randCount;
+      els.randCountPills.forEach((x) => x.classList.toggle('active', x === p));
     });
   });
 
-  els.fcScopeTabs.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-fc-scope]');
-    if (!btn) return;
-    state.customRandomDeckIds = null;
-    state.fcScope = btn.dataset.fcScope;
-    renderAll();
+  els.btnSheetStartRandom.addEventListener('click', () => {
+    startRandomDeck(els.randSourceSelect.value, state.selectedRandCount);
   });
 
-  els.btnFcRandomNext.addEventListener('click', () => stepRandomQuestion(false));
-  els.btnRandomStepNext.addEventListener('click', () => stepRandomQuestion(false));
-  els.btnRandomReshuffle.addEventListener('click', () => {
-    stepRandomQuestion(true);
-    showToast('↻ 已重新洗牌本輪隨機題目池');
-  });
-  els.btnFcClearRandomDeck.addEventListener('click', () => {
-    state.customRandomDeckIds = null;
-    state.customRandomDeckLabel = '';
-    renderAll();
+  els.btnSheetRandomChapter.addEventListener('click', () => {
+    const chapters = groupRowsByChapter(state.doc.rows);
+    if (!chapters.length) return;
+    const ch = chapters[Math.floor(Math.random() * chapters.length)];
+    startRandomDeck(ch.chapterKey, 'all');
   });
 
-  // Flashcards Delegated Interactions
-  els.fcCardsList.addEventListener('click', (e) => {
-    const quickGoto = e.target.closest('[data-quick-goto]');
-    if (quickGoto) {
-      state.activeNav = quickGoto.dataset.quickGoto;
+  // Flashcards Stage Controls
+  els.btnFcModeToggle.addEventListener('click', () => {
+    state.fcViewMode = state.fcViewMode === 'single' ? 'list' : 'single';
+    renderFlashcardsView();
+  });
+
+  els.btnFcClearRandom.addEventListener('click', () => {
+    state.customRandomDeckIds = null;
+    state.customRandomLabel = '';
+    state.fcIndex = 0;
+    renderFlashcardsView();
+  });
+
+  els.fcScopeRail.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-fc-scope]');
+    if (!chip) return;
+    state.customRandomDeckIds = null;
+    state.fcScope = chip.dataset.fcScope;
+    state.fcIndex = 0;
+    state.fcListPage = 0;
+    renderFlashcardsView();
+  });
+
+  els.fcStudyStage.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-fc-prev')) {
+      const list = getFlashcardCandidates();
+      state.fcIndex = (state.fcIndex - 1 + list.length) % list.length;
+      renderFlashcardsView();
+      return;
+    }
+    if (e.target.closest('#btn-fc-next')) {
+      const list = getFlashcardCandidates();
+      state.fcIndex = (state.fcIndex + 1) % list.length;
+      renderFlashcardsView();
+      return;
+    }
+    if (e.target.closest('#btn-fc-rand-step')) {
+      stepNoRepeatRandomQuestion();
+      return;
+    }
+    const masterBtn = e.target.closest('#btn-fc-toggle-master');
+    if (masterBtn) {
+      const id = masterBtn.dataset.id;
+      if (!state.flashcardsMap[id]) addRowToFlashcards(id, state.currentDay);
+      state.flashcardsMap[id].mastered = !state.flashcardsMap[id].mastered;
+      persistMeta();
+      renderFlashcardsView();
+      return;
+    }
+    if (e.target.closest('#btn-fc-list-prev')) {
+      state.fcListPage = Math.max(0, state.fcListPage - 1);
+      renderFlashcardsView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    if (e.target.closest('#btn-fc-list-next')) {
+      state.fcListPage += 1;
+      renderFlashcardsView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    const navJump = e.target.closest('[data-nav-jump]');
+    if (navJump) {
+      state.activeNav = navJump.dataset.navJump;
       renderAll();
       return;
     }
-
-    const quickAdd = e.target.closest('[data-fc-quick-add]');
-    if (quickAdd) {
-      addRowToFlashcards(quickAdd.dataset.fcQuickAdd, state.currentDay);
+    const addNow = e.target.closest('[data-fc-add-now]');
+    if (addNow) {
+      addRowToFlashcards(addNow.dataset.fcAddNow, state.currentDay);
       return;
     }
-
     const locate = e.target.closest('[data-locate-doc]');
     if (locate) {
-      const rowId = locate.dataset.locateDoc;
-      state.docsChapterFilter = 'all';
-      state.activeNav = 'docs';
-      renderAll();
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`doc-row-${rowId}`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          el.classList.remove('pulse-locate');
-          void el.offsetWidth;
-          el.classList.add('pulse-locate');
-        }
-      });
-      return;
-    }
-
-    const starBtn = e.target.closest('[data-fc-star]');
-    if (starBtn) {
-      const id = starBtn.dataset.fcStar;
-      if (state.flashcardsMap[id]) {
-        state.flashcardsMap[id].bookmarked = !state.flashcardsMap[id].bookmarked;
-        persistLocal();
+      const row = getRowById(locate.dataset.locateDoc);
+      if (row) {
+        state.docsSelectedChapter = row.chapterKey;
+        state.docsPage = 0;
+        state.activeNav = 'docs';
         renderAll();
+        requestAnimationFrame(() => {
+          document.getElementById(`doc-row-${row.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
       }
       return;
     }
-
-    const masterBtn = e.target.closest('[data-fc-master]');
-    if (masterBtn) {
-      const id = masterBtn.dataset.fcMaster;
-      if (state.flashcardsMap[id]) {
-        state.flashcardsMap[id].mastered = !state.flashcardsMap[id].mastered;
-        persistLocal();
-        renderAll();
-      }
-      return;
-    }
-
     const pt = e.target.closest('[data-fc-pt]');
     if (pt) {
       const id = pt.dataset.fcPt;
       const pIdx = Number(pt.dataset.ptIdx);
-      if (!state.flashcardsMap[id]) {
-        addRowToFlashcards(id, state.currentDay);
-      }
+      if (!state.flashcardsMap[id]) addRowToFlashcards(id, state.currentDay);
       const meta = state.flashcardsMap[id];
-      const row = getRowById(id);
-      if (meta && row) {
-        const set = new Set(meta.checkedPoints || []);
-        if (set.has(pIdx)) set.delete(pIdx);
-        else set.add(pIdx);
-        meta.checkedPoints = [...set];
-
-        if (meta.checkedPoints.length >= Math.max(row.answerPoints?.length || 1, 1) && !meta.mastered) {
-          meta.mastered = true;
-          showToast(`✓ Q${String(row.index).padStart(2, '0')} 所有給分點已核對，標記已掌握！`);
-        }
-        persistLocal();
-        renderAll();
-      }
+      const set = new Set(meta.checkedPoints || []);
+      if (set.has(pIdx)) set.delete(pIdx);
+      else set.add(pIdx);
+      meta.checkedPoints = [...set];
+      persistMeta();
+      renderFlashcardsView();
     }
   });
 
-  // Docs View: Chapter Directory Pills, Writeback Sort Toggle, Rich Text & Auto-Sync!
-  els.docsChapterPills.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-doc-ch]');
-    if (!btn) return;
-    state.docsChapterFilter = btn.dataset.docCh;
+  // Docs Controls
+  els.docsChapterRail.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-doc-ch]');
+    if (!chip) return;
+    state.docsSelectedChapter = chip.dataset.docCh;
+    state.docsPage = 0;
+    state.editingSingleRowId = null;
     renderDocsView();
   });
 
-  els.chkWritebackChapterSort.addEventListener('change', (e) => {
+  els.btnDocsEditToggle.addEventListener('click', () => {
+    state.docsEditMode = !state.docsEditMode;
+    state.editingSingleRowId = null;
+    renderDocsView();
+    if (state.docsEditMode) showToast('已進入編輯模式，點擊文字即可修改並自動寫回 Drive');
+  });
+
+  els.btnDocsPaperMode.addEventListener('click', () => {
+    state.appearance.docsPaper = state.appearance.docsPaper === 'dark' ? 'light' : 'dark';
+    applyAppearance();
+    persistMeta();
+  });
+
+  els.btnDocsAddAllCh.addEventListener('click', () => {
+    const ch = groupRowsByChapter(state.doc.rows).find((g) => g.chapterKey === state.docsSelectedChapter);
+    if (!ch) return;
+    let cnt = 0;
+    for (const r of ch.rows) {
+      if (!state.flashcardsMap[r.id]) {
+        state.flashcardsMap[r.id] = {
+          rowId: r.id,
+          addedDay: state.currentDay,
+          addedDate: toLocalISO(),
+          mastered: false,
+          checkedPoints: [],
+        };
+        cnt++;
+      }
+    }
+    persistMeta();
+    renderDocsView();
+    showToast(`✓ 已將本章 ${cnt} 題加入 Day ${state.currentDay} 閃卡！`);
+  });
+
+  els.btnDocsSyncNow.addEventListener('click', () => syncToDrive(true));
+  els.chkWritebackSort.addEventListener('change', (e) => {
     state.appearance.writebackSortByChapter = e.target.checked;
-    persistLocal();
-    showToast(
-      e.target.checked
-        ? '已開啟：寫回 Google Drive / 匯出時將按 Chapter 自然數字重新排序原檔'
-        : '已關閉：寫回時保留原檔段落順序，僅就地修補修改文字'
-    );
+    persistMeta();
   });
 
   document.querySelectorAll('.fmt-btn[data-cmd]').forEach((btn) => {
@@ -1683,340 +1309,202 @@ function bindEvents() {
       scheduleDriveAutoSync();
     });
   });
-
   els.btnFmtHighlight.addEventListener('mousedown', (e) => e.preventDefault());
   els.btnFmtHighlight.addEventListener('click', () => {
     document.execCommand('hiliteColor', false, 'rgba(250, 204, 21, 0.38)');
     scheduleDriveAutoSync();
   });
 
-  els.btnDocsPaperMode.addEventListener('click', () => {
-    state.appearance.docsPaper = state.appearance.docsPaper === 'dark' ? 'light' : 'dark';
-    applyAppearance();
-    persistLocal();
-  });
-
-  // Live Typing in Docs Title or Cells -> Updates State + Schedules 2.5s Auto-Sync to Google Drive!
-  els.docsTitleEditable.addEventListener('input', () => {
-    state.doc.title = els.docsTitleEditable.textContent.trim() || state.doc.title;
+  els.btnDocsAddRow.addEventListener('click', () => {
+    const ch = groupRowsByChapter(state.doc.rows).find((g) => g.chapterKey === state.docsSelectedChapter);
+    const newRow = buildDocRow({
+      id: `row-new-${Date.now().toString(36)}`,
+      index: state.doc.rows.length + 1,
+      originalOrder: state.doc.rows.length,
+      section: ch?.chapterLabel || 'Chapter 1',
+      questionLines: ['請輸入新題目... (2 marks)'],
+      answerLines: ['請輸入答案要點... (1)'],
+      dirty: true,
+    });
+    state.doc.rows.push(newRow);
+    state.editingSingleRowId = newRow.id;
+    renderDocsView();
     scheduleDriveAutoSync();
   });
 
-  els.docsGroupedBody.addEventListener('input', (e) => {
+  els.btnDocsExport.addEventListener('click', async () => {
+    const blob = await buildUpdatedDocxBlob(state.doc, rawDocxBuffer, {
+      sortByChapter: state.appearance.writebackSortByChapter,
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = state.doc.fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  els.docsRowsContainer.addEventListener('input', (e) => {
     const cell = e.target.closest('[data-edit-cell]');
     if (!cell) return;
     const rowId = cell.dataset.rowId;
-    const rowIdx = state.doc.rows.findIndex((r) => r.id === rowId);
-    if (rowIdx === -1) return;
-
-    const rowBlock = cell.closest('.doc-row-block');
-    const qHtml = rowBlock.querySelector('[data-edit-cell="q"]').innerHTML;
-    const aHtml = rowBlock.querySelector('[data-edit-cell="a"]').innerHTML;
-    state.doc.rows[rowIdx] = updateRowFromHtml(state.doc.rows[rowIdx], qHtml, aHtml);
+    const idx = state.doc.rows.findIndex((r) => r.id === rowId);
+    if (idx === -1) return;
+    const card = cell.closest('.doc-row-card');
+    state.doc.rows[idx] = updateRowFromHtml(
+      state.doc.rows[idx],
+      card.querySelector('[data-edit-cell="q"]').innerHTML,
+      card.querySelector('[data-edit-cell="a"]').innerHTML
+    );
     scheduleDriveAutoSync();
   });
 
-  els.docsGroupedBody.addEventListener('click', (e) => {
+  els.docsRowsContainer.addEventListener('click', (e) => {
     const addBtn = e.target.closest('[data-doc-add]');
     if (addBtn) {
       addRowToFlashcards(addBtn.dataset.docAdd, state.currentDay);
       return;
     }
-
     const unaddBtn = e.target.closest('[data-doc-unadd]');
     if (unaddBtn) {
       removeRowFromFlashcards(unaddBtn.dataset.docUnadd);
       return;
     }
-
-    const jumpFc = e.target.closest('[data-doc-jump-fc]');
-    if (jumpFc) {
-      const id = jumpFc.dataset.docJumpFc;
-      state.customRandomDeckIds = null;
-      state.fcScope = 'all';
-      state.fcMode = 'list';
-      state.activeNav = 'flashcards';
-      renderAll();
-      requestAnimationFrame(() => {
-        els.fcCardsList.querySelector(`[data-fc-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-      return;
-    }
-
-    const toggleBreak = e.target.closest('[data-doc-toggle-break]');
-    if (toggleBreak) {
-      const row = getRowById(toggleBreak.dataset.docToggleBreak);
-      if (row) {
-        row.pageBreakAfter = !row.pageBreakAfter;
-        row.dirty = true;
-        renderDocsView();
-        scheduleDriveAutoSync();
-      }
+    const editBtn = e.target.closest('[data-doc-edit-row]');
+    if (editBtn) {
+      const id = editBtn.dataset.docEditRow;
+      state.editingSingleRowId = state.editingSingleRowId === id ? null : id;
+      renderDocsView();
     }
   });
 
-  els.btnDocsAddRow.addEventListener('click', () => {
-    const nextIdx = state.doc.rows.length + 1;
-    const targetChapter =
-      state.docsChapterFilter !== 'all'
-        ? getChaptersSummary().find((g) => g.chapterKey === state.docsChapterFilter)?.chapterLabel
-        : 'Chapter 8: Transport in Humans';
-
-    const newRow = buildDocRow({
-      id: `row-new-${Date.now().toString(36)}`,
-      index: nextIdx,
-      originalOrder: state.doc.rows.length,
-      section: targetChapter || 'Chapter 1',
-      questionLines: ['請在此輸入新題目... (2 marks)'],
-      answerLines: ['請在此輸入答案要點一。 (1)', '請在此輸入答案要點二。 (1)'],
-      dirty: true,
-    });
-    state.doc.rows.push(newRow);
-    renderAll();
-    scheduleDriveAutoSync();
-    requestAnimationFrame(() => {
-      document.getElementById(`doc-row-${newRow.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-  });
-
-  els.btnDocsAddAll.addEventListener('click', () => {
-    const groups = groupRowsByChapter(state.doc.rows).filter(
-      (g) => state.docsChapterFilter === 'all' || g.chapterKey === state.docsChapterFilter
-    );
-    let added = 0;
-    for (const g of groups) {
-      for (const r of g.rows) {
-        if (!state.flashcardsMap[r.id]) {
-          state.flashcardsMap[r.id] = {
-            rowId: r.id,
-            addedDay: state.currentDay,
-            addedDate: toLocalISO(),
-            mastered: false,
-            bookmarked: false,
-            checkedPoints: [],
-          };
-          added++;
-        }
-      }
-    }
-    persistLocal();
-    renderAll();
-    showToast(`✓ 已批次加入 ${added} 題至 Day ${state.currentDay} 閃卡！`);
-  });
-
-  els.btnDocsExport.addEventListener('click', async () => {
-    try {
-      const blob = await buildUpdatedDocxBlob(state.doc, rawDocxBuffer, {
-        sortByChapter: state.appearance.writebackSortByChapter,
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = state.doc.fileName.endsWith('.docx') ? state.doc.fileName : `${state.doc.fileName}.docx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      showToast(`⬇ 已匯出 ${a.download}`);
-    } catch (err) {
-      showToast(`匯出失敗：${err.message}`);
+  els.docsPaginationBar.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-docs-prev-page')) {
+      state.docsPage = Math.max(0, state.docsPage - 1);
+      renderDocsView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (e.target.closest('#btn-docs-next-page')) {
+      state.docsPage += 1;
+      renderDocsView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
 
-  els.btnDocsSyncNow.addEventListener('click', () => syncDocAndStateToDrive(true));
-
-  // Google Drive Hub Events
-  els.driveModeBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      driveClient.setConfig({ mode: btn.dataset.driveMode });
-      renderDriveView();
-    });
+  // Cloud & Appearance Controls
+  els.btnCloudReconnect.addEventListener('click', () => {
+    driveClient.setConfig({ mode: 'apps-script', appsScriptUrl: els.inputAppsScriptUrl.value });
+    autoConnectDriveAndLoad(false);
   });
-
-  els.btnDriveOauthConnect.addEventListener('click', async () => {
-    try {
-      driveClient.setConfig({ mode: 'oauth', clientId: els.inputGdriveClientId.value });
-      showToast('正在連接 Google Drive 並建立 flashcard 資料夾...');
-      await driveClient.signInWithOAuth(true);
-      await refreshDriveFiles(false);
-      renderAll();
-      showToast('✓ Google Drive 已連線，Docs 修改將自動同步回原檔！');
-    } catch (err) {
-      showToast(err.message);
-    }
-  });
-
-  els.btnDriveScriptConnect.addEventListener('click', async () => {
-    try {
-      driveClient.setConfig({ mode: 'apps-script', appsScriptUrl: els.inputAppsScriptUrl.value });
-      showToast('正在驗證 Apps Script 與 flashcard 資料夾...');
-      await driveClient.ensureFlashcardFolder();
-      await refreshDriveFiles(false);
-      renderAll();
-      showToast('✓ Apps Script 已連線！');
-    } catch (err) {
-      showToast(err.message);
-    }
-  });
-
-  els.btnCopyAppsScript.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE);
-      showToast('已複製 Google Apps Script 程式碼！');
-    } catch {
-      showToast('請手動複製下方程式碼');
-    }
-  });
-
-  els.btnDriveDisconnect.addEventListener('click', () => {
-    driveClient.disconnect();
-    state.driveFiles = [];
-    state.driveSyncStatus = 'idle';
-    renderAll();
-    showToast('已中斷 Google Drive 連線');
-  });
-
-  els.btnDrivePushAll.addEventListener('click', () => syncDocAndStateToDrive(true));
-
-  els.btnDrivePullAll.addEventListener('click', async () => {
-    if (!driveClient.isConnected()) {
-      showToast('請先連接 Google Drive');
-      return;
-    }
-    try {
-      showToast('正在讀取 Google Drive / flashcard 進度...');
-      const cloud = await driveClient.loadWorkspaceState();
-      if (!cloud) {
-        showToast('尚無雲端狀態檔，可先按「同步全部」建立');
-        return;
-      }
-      state.doc = cloud.doc || state.doc;
-      state.flashcardsMap = cloud.flashcardsMap || state.flashcardsMap;
-      state.currentDay = cloud.currentDay || state.currentDay;
-      state.appearance = { ...DEFAULT_APPEARANCE, ...(cloud.appearance || {}) };
-      applyAppearance();
-      persistLocal();
-      renderAll();
-      showToast('✓ 已載入雲端閃卡與原檔狀態！');
-    } catch (err) {
-      showToast(err.message);
-    }
-  });
-
-  els.btnDriveListFolder.addEventListener('click', () => refreshDriveFiles(false));
-  els.btnDriveListAll.addEventListener('click', () => refreshDriveFiles(true));
+  els.btnDriveBrowseAll.addEventListener('click', () => autoConnectDriveAndLoad(true));
+  els.btnCloudPush.addEventListener('click', () => syncToDrive(true));
+  els.btnCloudUploadLocal.addEventListener('click', () => els.fileInput.click());
 
   els.driveFilesContainer.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-drive-open-id]');
+    const btn = e.target.closest('[data-open-drive-id]');
     if (!btn) return;
     try {
-      const fileId = btn.dataset.driveOpenId;
-      const name = btn.dataset.driveOpenName;
-      const mime = btn.dataset.driveOpenMime;
-      showToast(`正在從 Google Drive 下載 ${name}...`);
-      const buf = await driveClient.downloadDocxArrayBuffer(fileId, mime);
-      const parsed = await parseDocxDocument(buf, name);
-      if (!parsed.rows.length) {
-        showToast('此檔案內未偵測到雙欄 Q&A 表格或問答內容');
-        return;
-      }
-      rawDocxBuffer = parsed.rawBuffer;
-      state.doc = {
-        title: parsed.title,
-        fileName: parsed.fileName,
-        rows: parsed.rows,
-        driveFileId: fileId,
-      };
-      state.docsChapterFilter = 'all';
+      await openDriveFile({
+        id: btn.dataset.openDriveId,
+        name: btn.dataset.openDriveName,
+        mimeType: btn.dataset.openDriveMime,
+      });
       state.activeNav = 'docs';
-      state.driveSyncStatus = 'synced';
-      state.driveSyncTime = '剛載入';
-      persistLocal();
       renderAll();
-      showToast(`✓ 已載入 ${parsed.rows.length} 題（按 Chapter 排序），編輯將自動同步回此 Google Drive 檔案！`);
     } catch (err) {
       showToast(err.message);
     }
   });
-}
 
-async function refreshDriveFiles(allDrive = false) {
-  if (!driveClient.isConnected()) return;
-  try {
-    els.driveFilesHint.textContent = allDrive
-      ? '顯示整個 Google Drive 的 .docx 與 Google Docs'
-      : '顯示 Google Drive / flashcard/ 資料夾內的文件';
-    state.driveFiles = await driveClient.listDocuments(allDrive);
-    renderDriveView();
-  } catch (err) {
-    showToast(err.message);
-  }
-}
-
-async function handleLocalDocxUpload(file) {
-  if (!file.name.toLowerCase().endsWith('.docx')) {
-    showToast('請上傳 .docx 格式文件');
-    return;
-  }
-  try {
-    showToast(`正在解析並按 Chapter 排序 ${file.name}...`);
-    const parsed = await parseDocxDocument(file, file.name);
-    if (!parsed.rows.length) {
-      showToast('未在此 .docx 偵測到雙欄問答表格或 Q&A 段落');
-      return;
+  els.fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = await parseDocxDocument(file, file.name);
+      rawDocxBuffer = parsed.rawBuffer;
+      state.doc = { title: parsed.title, fileName: parsed.fileName, rows: parsed.rows, driveFileId: null };
+      state.docsSelectedChapter = groupRowsByChapter(parsed.rows)[0]?.chapterKey || 'all';
+      state.docsPage = 0;
+      state.activeNav = 'docs';
+      renderAll();
+      showToast(`✓ 已載入本機檔案 ${file.name}（${parsed.rows.length} 題）`);
+    } catch (err) {
+      showToast(err.message);
     }
-    rawDocxBuffer = parsed.rawBuffer;
-    state.doc = {
-      title: parsed.title,
-      fileName: parsed.fileName,
-      rows: parsed.rows,
-      driveFileId: null,
-    };
-    state.docsChapterFilter = 'all';
-    state.activeNav = 'docs';
-    persistLocal();
-    renderAll();
-    const chCount = getChaptersSummary().length;
-    showToast(`✓ 成功載入 ${parsed.rows.length} 題（自動識別並排序 ${chCount} 個 Chapter）！`);
-  } catch (err) {
-    showToast(`讀取失敗：${err.message}`);
-  }
+    els.fileInput.value = '';
+  });
+
+  els.settingsCustomAccent.addEventListener('input', (e) => {
+    state.appearance.customAccentHex = e.target.value;
+    applyAppearance();
+    persistMeta();
+  });
+  els.settingsRadiusSlider.addEventListener('input', (e) => {
+    state.appearance.sqRadius = Number(e.target.value);
+    applyAppearance();
+    persistMeta();
+  });
+  els.settingsKSlider.addEventListener('input', (e) => {
+    state.appearance.sqCurvature = Number(e.target.value);
+    applyAppearance();
+    persistMeta();
+  });
+  els.wpPresetBtns.forEach((b) => {
+    b.addEventListener('click', () => {
+      state.appearance.wpPreset = b.dataset.wpPreset;
+      applyAppearance();
+      persistMeta();
+    });
+  });
+
+  // Keyboard arrow / R shortcuts on desktop
+  window.addEventListener('keydown', (e) => {
+    if (e.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+    if (state.activeNav === 'flashcards') {
+      const list = getFlashcardCandidates();
+      if (!list.length) return;
+      if (e.key.toLowerCase() === 'r') stepNoRepeatRandomQuestion();
+      else if (e.key === 'ArrowRight') {
+        state.fcIndex = (state.fcIndex + 1) % list.length;
+        renderFlashcardsView();
+      } else if (e.key === 'ArrowLeft') {
+        state.fcIndex = (state.fcIndex - 1 + list.length) % list.length;
+        renderFlashcardsView();
+      }
+    }
+  });
 }
 
 function showToast(msg) {
   els.toastText.textContent = msg;
   els.toastPill.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => els.toastPill.classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => els.toastPill.classList.remove('show'), 2800);
 }
 
 function hexToRgba(hex, alpha) {
   const clean = String(hex || '#D96F52').replace('#', '');
   const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
   const num = parseInt(full, 16);
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
 }
 
-function escapeHtml(str) {
-  return String(str || '')
+function escapeHtml(s) {
+  return String(s || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
 
-function escapeAttr(str) {
-  return escapeHtml(str).replace(/'/g, '&#39;');
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/'/g, '&#39;');
 }
 
-function highlightText(text, query) {
+function highlightText(text, q) {
   const safe = escapeHtml(text);
-  const q = String(query || '').trim();
-  if (!q) return safe;
-  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const query = String(q || '').trim();
+  if (!query) return safe;
+  const esc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return safe.replace(new RegExp(`(${esc})`, 'gi'), '<mark class="hl">$1</mark>');
 }
 
