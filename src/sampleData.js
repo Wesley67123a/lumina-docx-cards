@@ -1,13 +1,29 @@
 import { buildDocRow } from './docxParser.js';
 
 export const SAMPLE_DOC_DATA = {
-  title: 'HKDSE BIOLOGY — Chapter 8 & 17 Q&A Notes',
+  title: 'HKDSE BIOLOGY — Ch.2 to Ch.27 Q&A Notes',
   fileName: 'HKDSE_Bio_Ch2_to_Ch27_QA_Notes-v48_Goodnotes.docx',
   driveFileId: null,
   rows: [
     buildDocRow({
-      id: 'row-bio-1',
+      id: 'row-bio-ch2-1',
       index: 1,
+      originalOrder: 0,
+      section: 'Chapter 2: The Cell as the Basic Unit of Life',
+      questionLines: [
+        'Explain why the fluid mosaic model describes the cell membrane as both "fluid" and "mosaic". (2 marks)',
+        '*HKDSE Bio Ch.2 QB',
+      ],
+      answerLines: [
+        'The phospholipid molecules can move laterally within the bilayer, giving the membrane fluidity. (1)',
+        'Protein molecules are interspersed among the phospholipid molecules in a mosaic pattern. (1)',
+      ],
+      pageBreakAfter: false,
+    }),
+    buildDocRow({
+      id: 'row-bio-1',
+      index: 2,
+      originalOrder: 1,
       section: 'Chapter 8: Transport in Humans',
       questionLines: [
         'Describe the pressure changes in the blood as it flows through the circulatory system from the aorta to the veins. (3 marks)',
@@ -22,7 +38,8 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-2',
-      index: 2,
+      index: 3,
+      originalOrder: 2,
       section: 'Chapter 8: Transport in Humans',
       questionLines: [
         'Explain why it is important that the pressure changes as blood flows from the aorta to the capillaries. (2 marks)',
@@ -36,7 +53,8 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-3',
-      index: 3,
+      index: 4,
+      originalOrder: 3,
       section: 'Chapter 8: Transport in Humans',
       questionLines: [
         'How can damaged valves in veins lead to varicose veins? (2 marks)',
@@ -50,7 +68,8 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-4',
-      index: 4,
+      index: 5,
+      originalOrder: 4,
       section: 'Chapter 8: Transport in Humans',
       questionLines: [
         'Why are people who need to stand for a prolonged period of time at higher risk of having varicose veins in their lower limbs? (1 mark)',
@@ -63,11 +82,12 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-5',
-      index: 5,
+      index: 6,
+      originalOrder: 5,
       section: 'Chapter 17: Coordination in Humans',
       questionLines: [
         'Many mitochondria can be found in the axon endings of the motor neurones. State the roles of mitochondria in the transmission of nerve impulses across the neuromuscular junctions. (4 marks)',
-        '*HKDSE Past Paper Practice',
+        '*HKDSE Bio Ch.17 Past Paper',
       ],
       answerLines: [
         'Mitochondria are the main site of respiration. (1)',
@@ -78,7 +98,8 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-6',
-      index: 6,
+      index: 7,
+      originalOrder: 6,
       section: 'Chapter 17: Coordination in Humans',
       questionLines: [
         'The bacterium Clostridium botulinum releases a toxin which can bind to presynaptic membrane P and can cause death as it can lead to paralysis of the human breathing system. Explain how the binding of the toxin released by Clostridium botulinum to membrane P leads to the paralysis of the human breathing system. (3 marks)',
@@ -93,7 +114,8 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-7',
-      index: 7,
+      index: 8,
+      originalOrder: 7,
       section: 'Chapter 18: Movement in Humans',
       questionLines: [
         'The end surfaces of the upper leg bone are covered with cartilage. Give two functions of this cartilage at the hip joint. (2 marks)',
@@ -107,7 +129,8 @@ export const SAMPLE_DOC_DATA = {
     }),
     buildDocRow({
       id: 'row-bio-8',
-      index: 8,
+      index: 9,
+      originalOrder: 8,
       section: 'Chapter 8: Transport in Humans',
       questionLines: [
         'How can compression stockings treat varicose veins? (3 marks)',
@@ -123,14 +146,18 @@ export const SAMPLE_DOC_DATA = {
   ],
 };
 
-/**
- * Initial pre-added Flashcards (so Day 1 / Day 2 tracking, Overview Bar Chart,
- * and Docs "✓ 已加入" checkmarks are immediately visible on first open!)
- */
 export function buildInitialSeededFlashcards(startDateStr) {
   const d1 = startDateStr;
   const d2 = addDaysISO(startDateStr, 1);
   return {
+    'row-bio-ch2-1': {
+      rowId: 'row-bio-ch2-1',
+      addedDay: 1,
+      addedDate: d1,
+      mastered: true,
+      bookmarked: false,
+      checkedPoints: [0, 1],
+    },
     'row-bio-1': {
       rowId: 'row-bio-1',
       addedDay: 1,
@@ -141,8 +168,8 @@ export function buildInitialSeededFlashcards(startDateStr) {
     },
     'row-bio-2': {
       rowId: 'row-bio-2',
-      addedDay: 1,
-      addedDate: d1,
+      addedDay: 2,
+      addedDate: d2,
       mastered: true,
       bookmarked: true,
       checkedPoints: [0, 1],
@@ -157,8 +184,8 @@ export function buildInitialSeededFlashcards(startDateStr) {
     },
     'row-bio-6': {
       rowId: 'row-bio-6',
-      addedDay: 2,
-      addedDate: d2,
+      addedDay: 3,
+      addedDate: addDaysISO(startDateStr, 2),
       mastered: false,
       bookmarked: false,
       checkedPoints: [],

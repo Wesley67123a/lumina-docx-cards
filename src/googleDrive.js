@@ -423,12 +423,28 @@ function doPost(e) {
       const bytes = Utilities.base64Decode(req.base64);
       const blob = Utilities.newBlob(bytes, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', req.fileName);
       if (req.fileId) {
-        DriveApp.getFileById(req.fileId).setTrashed(true);
+        try {
+          // If Advanced Drive API is enabled, update in-place keeping the exact same fileId
+          const updated = Drive.Files.update({ title: req.fileName }, req.fileId, blob);
+          result.id = updated.id;
+          result.name = req.fileName;
+        } catch (_e) {
+          // Fallback with standard DriveApp: put updated file in same parent folder & trash old revision
+          const oldFile = DriveApp.getFileById(req.fileId);
+          const parents = oldFile.getParents();
+          const targetFolder = parents.hasNext() ? parents.next() : folder;
+          const created = targetFolder.createFile(blob);
+          oldFile.setTrashed(true);
+          result.id = created.getId();
+          result.name = created.getName();
+          result.webViewLink = created.getUrl();
+        }
+      } else {
+        const created = folder.createFile(blob);
+        result.id = created.getId();
+        result.name = created.getName();
+        result.webViewLink = created.getUrl();
       }
-      const created = folder.createFile(blob);
-      result.id = created.getId();
-      result.name = created.getName();
-      result.webViewLink = created.getUrl();
     }
     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {

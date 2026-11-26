@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-Hant" data-theme="light">
+<html lang="zh-Hant" data-palette="terracotta">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lumina Spatial Studio — VisionOS 擬態半透明 .docx 閃卡與原檔工作台</title>
+    <title>Wesley Study Studio — .docx 同步問答閃卡與原檔工作台</title>
     <meta
       name="description"
-      content="融合 VisionOS 空間毛玻璃、Samsung Galaxy S9 動態壁紙、可調強調色與連續曲率圓角、自由調整卡片大小位置保存、Google Drive flashcard 同步與 Docs 原檔編輯的同步問答閃卡平台。"
+      content="柔和奶油粉彩儀表盤與可選 Samsung Galaxy S9 動態壁紙，支援 .docx 按 Chapter 排序閱讀編輯、自動同步回 Google Drive、Day 天數收錄打勾、隨機 Flashcard 牌組與無重複隨機抽題。"
     />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <!-- Samsung Galaxy S9 Infinity Live Canvas Wallpaper -->
+    <!-- Optional Samsung Galaxy S9 Infinity Live Canvas Wallpaper -->
     <canvas id="s9-wallpaper-canvas" aria-hidden="true"></canvas>
 
     <!-- Hidden .docx Upload Input -->
@@ -22,440 +22,602 @@
       hidden
     />
 
-    <!-- Global Drag & Drop Frosted Overlay -->
-    <div id="global-drop-veil" class="global-drop-veil sq-window" aria-hidden="true">
+    <!-- Global Drag & Drop Overlay -->
+    <div id="global-drop-veil" class="global-drop-veil sq-lg" aria-hidden="true">
       <div style="text-align: center; padding: 32px">
-        <div class="command-orb" style="width: 56px; height: 56px; margin: 0 auto 14px"></div>
-        <h2 style="margin: 0 0 6px">放開以載入 .docx 原檔至 Docs 閱讀器與閃卡</h2>
-        <p style="margin: 0; color: var(--ink-secondary)">自動保留雙欄問答表格、給分要點 (1) 與分頁符號</p>
+        <div class="brand-w-box sq-md" style="width: 56px; height: 56px; font-size: 1.4rem; margin: 0 auto 14px">W</div>
+        <h2 style="margin: 0 0 6px" data-i18n="dropTitle">放開以載入 .docx 問答筆記</h2>
+        <p style="margin: 0; color: var(--ink-secondary)" data-i18n="dropSub">自動偵測 Chapter 編號排序，並保留原始排版與圖片以供回寫 Google Drive</p>
       </div>
     </div>
 
-    <!-- Toast Feedback Pill -->
+    <!-- Toast Notification -->
     <div id="toast-pill" class="toast-pill" role="status" aria-live="polite">
       <span id="toast-text">已更新</span>
     </div>
 
-    <!-- Floating Appearance Studio Popover (Accent Color, Continuous Curvature, S9 Wallpaper) -->
-    <aside id="appearance-popover" class="appearance-popover sq-card" aria-label="外觀與動態壁紙設定">
-      <div style="display: flex; align-items: center; justify-content: space-between">
-        <strong style="font-size: 0.94rem">空間外觀與 S9 動態壁紙</strong>
-        <button id="btn-close-appearance" class="day-step-btn" type="button" aria-label="關閉外觀設定">✕</button>
-      </div>
-
-      <!-- Accent Color Picker -->
-      <div>
-        <div class="pop-section-title">
-          <span>強調色 (Accent Color)</span>
-          <span id="accent-hex-readout" style="font-family: 'JetBrains Mono', monospace">#1F9D8B</span>
-        </div>
-        <div class="swatch-row" id="accent-swatch-row">
-          <button class="accent-swatch active" data-accent="#1F9D8B" style="background: #1F9D8B" title="Emerald Glass"></button>
-          <button class="accent-swatch" data-accent="#2F7CF6" style="background: #2F7CF6" title="S9 Cobalt"></button>
-          <button class="accent-swatch" data-accent="#6366F1" style="background: #6366F1" title="S9 Iris"></button>
-          <button class="accent-swatch" data-accent="#EC4899" style="background: #EC4899" title="S9 Orchid Pink"></button>
-          <button class="accent-swatch" data-accent="#F59E0B" style="background: #F59E0B" title="Amber Prism"></button>
-          <button class="accent-swatch" data-accent="#10B981" style="background: #10B981" title="Glacier Mint"></button>
-          <button class="accent-swatch" data-accent="#0EA5E9" style="background: #0EA5E9" title="Ice Cyan"></button>
-          <label class="color-wheel-wrap" title="自訂任意強調色">
-            <input type="color" id="custom-accent-picker" value="#1F9D8B" />
-          </label>
-        </div>
-      </div>
-
-      <!-- Continuous Curvature Squircle Controls -->
-      <div class="slider-control-row">
-        <div class="pop-section-title" style="margin-bottom: 2px">
-          <span>連續曲率圓角 (Squircle)</span>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span id="squircle-readout" style="font-family: 'JetBrains Mono', monospace">28px · n=1.48</span>
-            <span class="squircle-preview-badge" title="即時曲率預覽"></span>
+    <div id="app-layout" class="app-layout">
+      <!-- ==================== LEFT COLLAPSIBLE ROUNDED SIDEBAR (IMG_9404) ==================== -->
+      <aside class="sidebar-shell sq-lg" aria-label="主導覽側欄">
+        <div class="sidebar-brand-row">
+          <div class="brand-id">
+            <div class="brand-w-box sq-sm">W</div>
+            <div class="brand-text">
+              <strong>Wesley</strong>
+              <span id="sidebar-sub-label">Home</span>
+            </div>
           </div>
-        </div>
-        <label style="font-size: 0.74rem; color: var(--ink-secondary); display: flex; justify-content: space-between">
-          <span>圓角大小 Radius</span>
-          <span id="radius-val-label">28px</span>
-        </label>
-        <input id="slider-sq-radius" type="range" min="12" max="44" step="1" value="28" />
-
-        <label style="font-size: 0.74rem; color: var(--ink-secondary); display: flex; justify-content: space-between; margin-top: 4px">
-          <span>連續曲率平滑指數 Curvature (G2)</span>
-          <span id="curvature-val-label">1.48</span>
-        </label>
-        <input id="slider-sq-k" type="range" min="1.0" max="2.0" step="0.02" value="1.48" />
-      </div>
-
-      <!-- Samsung Galaxy S9 Wallpaper Controls -->
-      <div>
-        <div class="pop-section-title">
-          <span>Galaxy S9 動態壁紙</span>
-          <button id="btn-toggle-wp-motion" class="chip-action-btn" type="button">暫停流動</button>
-        </div>
-        <div class="seg-group" style="width: 100%; justify-content: space-between; margin-bottom: 10px">
-          <button class="seg-btn active" data-wp-preset="s9-silk" type="button">S9 Silk</button>
-          <button class="seg-btn" data-wp-preset="s9-midnight" type="button">S9 Midnight</button>
-          <button class="seg-btn" data-wp-preset="s9-pearl" type="button">S9 Pearl</button>
-        </div>
-        <div class="slider-control-row">
-          <label style="font-size: 0.74rem; color: var(--ink-secondary); display: flex; justify-content: space-between">
-            <span>絲綢光波流動速度</span>
-            <span id="wp-speed-label">1.0×</span>
-          </label>
-          <input id="slider-wp-speed" type="range" min="0.2" max="2.4" step="0.1" value="1.0" />
-        </div>
-      </div>
-
-      <!-- Glass Surface Mode -->
-      <div>
-        <div class="pop-section-title"><span>玻璃視窗透光風格</span></div>
-        <div class="seg-group" style="width: 100%; justify-content: space-between">
-          <button id="theme-light-btn" class="seg-btn active" type="button" style="flex: 1">亮霧玻璃 (VisionOS)</button>
-          <button id="theme-dark-btn" class="seg-btn" type="button" style="flex: 1">深邃冰晶 (Obsidian)</button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Main Spatial Stage -->
-    <div class="spatial-root">
-      <!-- 1. Top Floating Utility Bar (Matches IMG_9401) -->
-      <header class="top-utility-bar">
-        <button id="btn-top-drive-pill" class="glass-pill-bar user-status-pill sq-pill" type="button" title="前往 Google Drive 同步設定">
-          <span class="user-avatar-dot">LS</span>
-          <span id="top-welcome-label">Welcome, Study Studio</span>
-          <span id="top-drive-dot" class="drive-live-dot" title="Google Drive 連線狀態"></span>
-        </button>
-
-        <div class="glass-pill-bar command-search-pill sq-pill">
-          <span class="command-orb" aria-hidden="true"></span>
-          <input
-            id="global-search-input"
-            type="search"
-            placeholder="搜尋題目、答案要點、出處或 Day 紀錄..."
-            autocomplete="off"
-          />
-        </div>
-
-        <div class="top-right-pills">
-          <div class="glass-pill-bar day-tracker-pill sq-pill" title="設定目前加入新閃卡所記錄的學習天數 (Day X)">
-            <span>目前進度</span>
-            <span id="top-day-display" class="day-badge-val">Day 3</span>
-            <button id="btn-day-minus" class="day-step-btn" type="button" title="減少一天">−</button>
-            <button id="btn-day-plus" class="day-step-btn" type="button" title="增加一天">+</button>
-          </div>
-
-          <button id="btn-open-appearance" class="top-circle-btn" type="button" title="外觀：強調色 / 連續曲率圓角 / S9 壁紙" aria-label="開啟外觀設定">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          <button id="btn-collapse-sidebar" class="icon-circle-sm" type="button" title="收合側欄" aria-label="收合側欄">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
         </div>
-      </header>
 
-      <!-- 2. Workspace Row: Left Floating Icon Rail + Main Spatial Frosted Window -->
-      <div class="workspace-row">
-        <!-- Left Floating Vertical Icon Rail (Matches IMG_9401) -->
-        <nav class="left-floating-rail" aria-label="主導覽側欄">
-          <button class="rail-btn active" data-nav="overview" data-tooltip="空間儀表盤 Overview" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
+        <nav class="sidebar-nav">
+          <button class="side-nav-btn sq-sm active" data-nav="home" type="button">
+            <span class="side-nav-left">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+              <span data-i18n="navHome">Home 首頁</span>
+            </span>
+            <span class="side-nav-chevron">›</span>
           </button>
 
-          <button class="rail-btn" data-nav="flashcards" data-tooltip="同步問答閃卡 Flashcards" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="4" width="20" height="16" rx="3" />
-              <line x1="12" y1="4" x2="12" y2="20" />
-            </svg>
+          <button class="side-nav-btn sq-sm" data-nav="flashcards" type="button">
+            <span class="side-nav-left">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              </svg>
+              <span data-i18n="navFlashcards">Flashcards 閃卡</span>
+            </span>
+            <span class="side-nav-chevron">›</span>
           </button>
 
-          <button class="rail-btn" data-nav="docs" data-tooltip="Docs 原檔閱讀與編輯" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="8" y1="13" x2="16" y2="13" />
-              <line x1="8" y1="17" x2="14" y2="17" />
-            </svg>
+          <button class="side-nav-btn sq-sm" data-nav="docs" type="button">
+            <span class="side-nav-left">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="8" y1="13" x2="16" y2="13" />
+                <line x1="8" y1="17" x2="13" y2="17" />
+              </svg>
+              <span data-i18n="navDocs">Docs 原檔</span>
+            </span>
+            <span class="side-nav-chevron">›</span>
           </button>
 
-          <button class="rail-btn" data-nav="drive" data-tooltip="Google Drive (flashcard)" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-            </svg>
+          <button class="side-nav-btn sq-sm" data-nav="drive" type="button">
+            <span class="side-nav-left">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+              </svg>
+              <span data-i18n="navDrive">Google Drive</span>
+            </span>
+            <span class="side-nav-chevron">›</span>
           </button>
 
-          <div class="rail-divider" aria-hidden="true"></div>
-
-          <button id="rail-edit-layout-btn" class="rail-btn" data-tooltip="調整卡片大小與位置" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="5 9 2 12 5 15" />
-              <polyline points="9 5 12 2 15 5" />
-              <polyline points="15 19 12 22 9 19" />
-              <polyline points="19 9 22 12 19 15" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <line x1="12" y1="2" x2="12" y2="22" />
-            </svg>
-          </button>
-
-          <button id="rail-upload-btn" class="rail-btn" data-tooltip="上傳本地 .docx" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
-
-          <button id="rail-appearance-btn" class="rail-btn" data-tooltip="強調色 / 圓角 / S9壁紙" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
-              <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
-              <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
-              <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
-              <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
-            </svg>
+          <button class="side-nav-btn sq-sm" data-nav="settings" type="button">
+            <span class="side-nav-left">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              <span data-i18n="navSettings">外觀與設定</span>
+            </span>
+            <span class="side-nav-chevron">›</span>
           </button>
         </nav>
 
-        <!-- Main Frosted Spatial Window -->
-        <main id="main-spatial-window" class="main-spatial-window sq-window">
-          <!-- Window Top Header -->
-          <div class="window-header">
-            <div class="window-greeting">
-              <h1 id="main-heading">Good morning, Study Studio</h1>
-              <p>
-                <span id="header-doc-name">HKDSE_Bio_Ch2_to_Ch27_QA_Notes-v48_Goodnotes.docx</span>
-                <span>·</span>
-                <span id="header-sync-subtitle">已收錄 4 / 8 題至閃卡</span>
-              </p>
+        <!-- Bottom Pastel Quick-Random Card (Exact IMG_9404) -->
+        <div class="sidebar-promo-card sq-md">
+          <div class="promo-sparkle sq-sm">✦</div>
+          <strong data-i18n="promoTitle">今日隨機抽卡</strong>
+          <span data-i18n="promoDesc">從已收錄閃卡隨機組一組快篩複習</span>
+          <button id="btn-sidebar-random" class="btn-soft accent" type="button" style="width: 100%; padding: 8px 12px; font-size: 0.78rem">
+            <span data-i18n="promoCta">🎲 立即隨機抽卡</span>
+          </button>
+        </div>
+
+        <!-- Bottom Profile Pill (Exact IMG_9404) -->
+        <div id="btn-sidebar-profile" class="sidebar-user-pill sq-sm" title="檢視 Google Drive 連線狀態">
+          <span class="user-mini-avatar">W</span>
+          <div class="user-mini-meta">
+            <strong>Wesley</strong>
+            <span id="sidebar-drive-caption">@Wesley67123a</span>
+          </div>
+          <span id="sidebar-drive-dot" class="drive-status-dot"></span>
+        </div>
+      </aside>
+
+      <!-- ==================== MAIN CONTENT STAGE ==================== -->
+      <main class="main-stage">
+        <!-- Top Header Bar (Exact IMG_9403 & IMG_9404 Controls!) -->
+        <header class="topbar">
+          <div class="topbar-left">
+            <button id="btn-expand-sidebar" class="icon-circle-sm" type="button" title="展開/收合側欄" aria-label="切換側欄">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <line x1="4" y1="7" x2="20" y2="7" />
+                <line x1="4" y1="12" x2="20" y2="12" />
+                <line x1="4" y1="17" x2="20" y2="17" />
+              </svg>
+            </button>
+            <div class="breadcrumb-text">
+              <span>Wesley</span>
+              <span>›</span>
+              <strong id="topbar-breadcrumb">Home</strong>
+            </div>
+          </div>
+
+          <div class="topbar-right">
+            <!-- 中 / EN Bilingual Toggle (Exact IMG_9403) -->
+            <div class="top-pill sq-pill" role="group" aria-label="語言切換">
+              <button class="lang-btn active" data-lang="zh" type="button">中</button>
+              <button class="lang-btn" data-lang="en" type="button">EN</button>
             </div>
 
-            <div class="window-header-actions">
-              <button id="btn-toggle-layout-edit" class="btn-pill" type="button">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1">
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
+            <!-- Inline 5-Color Accent Swatch Pill (Exact IMG_9403) -->
+            <div class="top-pill palette-pill sq-pill" role="group" aria-label="強調色主題切換">
+              <button class="palette-dot active" data-set-palette="terracotta" style="background: #D96F52" title="Terracotta Warm"></button>
+              <button class="palette-dot" data-set-palette="sage" style="background: #528467" title="Botanical Sage"></button>
+              <button class="palette-dot" data-set-palette="ocean" style="background: #4C7EB0" title="Ocean Slate"></button>
+              <button class="palette-dot" data-set-palette="lavender" style="background: #7B61B8" title="Lavender Iris"></button>
+              <button class="palette-dot" data-set-palette="amber" style="background: #C98F32" title="Honey Amber"></button>
+            </div>
+
+            <!-- S9 Live Wallpaper Mode Quick Toggle -->
+            <div class="top-pill sq-pill">
+              <button id="btn-s9-mode-toggle" class="wp-toggle-btn" type="button" title="切換 Samsung Galaxy S9 動態壁紙＋半透明毛玻璃模式">
+                <span>✦</span>
+                <span data-i18n="s9Btn">S9 壁紙</span>
+              </button>
+            </div>
+
+            <!-- Search Pill (⌘K) -->
+            <div class="top-pill search-pill sq-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color: var(--ink-muted)">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input id="global-search-input" type="search" placeholder="搜尋題目 / Chapter..." autocomplete="off" />
+              <span class="kbd-badge">⌘K</span>
+            </div>
+
+            <!-- Avatar W Badge -->
+            <button id="btn-top-avatar" class="top-w-avatar" type="button" title="Google Drive 與帳號">W</button>
+          </div>
+        </header>
+
+        <!-- Greeting Header -->
+        <div class="greeting-block">
+          <div>
+            <h1 id="page-greeting">Good evening, Wesley</h1>
+            <p class="greeting-meta">
+              <span id="live-date-line">Thursday 26 November · 20:00</span>
+              <span>·</span>
+              <span id="active-file-caption">HKDSE_Bio_Ch2_to_Ch27_QA_Notes-v48_Goodnotes.docx</span>
+            </p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+            <button id="btn-open-docx" class="btn-soft" type="button">
+              <span>📂</span>
+              <span data-i18n="openDocx">開啟 .docx</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ==================== VIEW 1: HOME DASHBOARD (IMG_9404 & IMG_9403) ==================== -->
+        <section id="view-home" class="view-section active" aria-label="首頁儀表盤">
+          <div class="home-top-grid">
+            <!-- Hero Banner Card with Concentric Orbital Disc -->
+            <div class="hero-card sq-card">
+              <div class="hero-left">
+                <div class="hero-pills-row">
+                  <span class="hero-white-pill">
+                    <span>☁</span>
+                    <span id="hero-day-label">Day 3</span>
+                    <button id="btn-day-minus" class="day-step-mini" type="button" title="減少一天">−</button>
+                    <button id="btn-day-plus" class="day-step-mini" type="button" title="增加一天">+</button>
+                  </span>
+                  <span class="hero-white-pill">
+                    <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent)"></span>
+                    <span id="hero-short-date">Thu, 26 Nov</span>
+                  </span>
+                </div>
+
+                <div id="hero-clock" class="hero-clock-readout">20:14:50</div>
+                <div id="hero-full-date" class="hero-sub-caption">Thursday, 26 November 2026</div>
+
+                <div class="hero-actions-row">
+                  <button id="btn-hero-resume" class="btn-soft accent" type="button">
+                    <span>▶</span>
+                    <span data-i18n="heroResume">繼續複習閃卡</span>
+                  </button>
+                  <button id="btn-hero-random-q" class="btn-soft" type="button">
+                    <span>🎲</span>
+                    <span data-i18n="heroRandom">隨機抽題</span>
+                  </button>
+                </div>
+
+                <div class="hero-ring-row">
+                  <div class="progress-ring-box">
+                    <svg viewBox="0 0 46 46">
+                      <circle cx="23" cy="23" r="19" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="4.5" />
+                      <circle
+                        id="hero-ring-circle"
+                        cx="23"
+                        cy="23"
+                        r="19"
+                        fill="none"
+                        stroke="var(--accent)"
+                        stroke-width="4.5"
+                        stroke-linecap="round"
+                        stroke-dasharray="119.38"
+                        stroke-dashoffset="48"
+                      />
+                    </svg>
+                    <span id="hero-ring-pct" class="progress-ring-label">60%</span>
+                  </div>
+                  <div style="font-size: 0.78rem; color: var(--ink-secondary); line-height: 1.35">
+                    <strong id="hero-mastery-title" style="color: var(--ink-primary); display: block">已掌握 3 / 5 張閃卡</strong>
+                    <span id="hero-mastery-sub">原檔共收錄 5 / 9 題</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Iconic Concentric Orbital Clock Disc (IMG_9404 & IMG_9403) -->
+              <div class="orbital-disc" aria-hidden="true">
+                <svg viewBox="0 0 160 160">
+                  <circle cx="80" cy="80" r="64" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1.2" />
+                  <circle cx="80" cy="80" r="48" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.2" />
+                  <circle cx="80" cy="80" r="32" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1.2" />
+                  <!-- Live Orbiting Arc + Satellite Dots -->
+                  <path
+                    id="orbital-arc"
+                    d="M 80 16 A 64 64 0 0 1 144 80"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.55)"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <circle id="orbital-dot-sec" cx="136" cy="48" r="4.2" fill="#ffffff" />
+                  <circle id="orbital-dot-min" cx="110" cy="42" r="3.4" fill="var(--accent)" />
                 </svg>
-                <span id="layout-edit-label">調整卡片大小與位置</span>
-              </button>
+                <div class="orbital-center-w">W</div>
+              </div>
+            </div>
 
-              <button id="btn-save-layout" class="btn-pill solid-accent" type="button" style="display: none">
-                <span>保存佈局</span>
-              </button>
+            <!-- 4 Signature Pastel Cards (Exact IMG_9404 & IMG_9403 Colors!) -->
+            <div class="pastel-quad-grid">
+              <article class="pastel-card sage sq-card" id="card-home-flashcards">
+                <div class="pastel-card-top">
+                  <span class="pastel-icon-badge sq-sm">⊞</span>
+                  <span class="pastel-arrow">›</span>
+                </div>
+                <div>
+                  <div class="pastel-card-label" data-i18n="tileFcLabel">已收錄閃卡</div>
+                  <div id="tile-fc-value" class="pastel-card-value">5 Cards</div>
+                  <div id="tile-fc-sub" class="pastel-card-sub">3 已掌握 · 2 待複習</div>
+                </div>
+              </article>
 
-              <button id="btn-reset-layout" class="btn-pill" type="button" style="display: none">
-                <span>重置預設</span>
-              </button>
+              <article class="pastel-card peach sq-card" id="card-home-study">
+                <div class="pastel-card-top">
+                  <span class="pastel-icon-badge sq-sm">⚗</span>
+                  <span class="pastel-arrow">›</span>
+                </div>
+                <div>
+                  <div class="pastel-card-label" data-i18n="tileStudyLabel">Today's Study</div>
+                  <div id="tile-study-value" class="pastel-card-value">Biology</div>
+                  <div id="tile-study-sub" class="pastel-card-sub">Ch.2 – Ch.18</div>
+                </div>
+              </article>
 
-              <button id="btn-header-upload" class="btn-pill solid-ink" type="button">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                <span>開啟 .docx</span>
+              <article class="pastel-card butter sq-card" id="card-home-random">
+                <div class="pastel-card-top">
+                  <span class="pastel-icon-badge sq-sm">🎲</span>
+                  <span class="pastel-arrow">›</span>
+                </div>
+                <div>
+                  <div class="pastel-card-label" data-i18n="tileRandomLabel">隨機 Flashcard 組</div>
+                  <div id="tile-random-value" class="pastel-card-value" data-i18n="tileRandomVal">一鍵抽組</div>
+                  <div id="tile-random-sub" class="pastel-card-sub">5 / 10 / 15 題隨機組</div>
+                </div>
+              </article>
+
+              <article class="pastel-card sky sq-card" id="card-home-docs">
+                <div class="pastel-card-top">
+                  <span class="pastel-icon-badge sq-sm">📄</span>
+                  <span class="pastel-arrow">›</span>
+                </div>
+                <div>
+                  <div class="pastel-card-label" data-i18n="tileDocsLabel">Docs 原檔章節</div>
+                  <div id="tile-docs-value" class="pastel-card-value">4 Chapters</div>
+                  <div id="tile-docs-sub" class="pastel-card-sub">按 Chapter 自動排序</div>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <!-- Bottom 2 White Rounded Cards (Capsule Bar Chart + Chapter Breakdown) -->
+          <div class="home-bottom-grid">
+            <article class="surface-card sq-card">
+              <div class="card-head-row">
+                <div>
+                  <h2 id="chart-card-title" data-i18n="chartTitle">學習紀錄分佈</h2>
+                  <div id="chart-card-sub" class="card-head-sub">點擊任一柱狀條直接篩選該天或章節閃卡</div>
+                </div>
+                <div class="ab-toggle" role="group" aria-label="切換圖表維度">
+                  <button class="ab-btn active" data-chart-mode="day" type="button">A · Day</button>
+                  <button class="ab-btn" data-chart-mode="chapter" type="button">B · Ch</button>
+                </div>
+              </div>
+              <div id="home-bar-chart" class="capsule-chart-area"></div>
+            </article>
+
+            <article class="surface-card sq-card">
+              <div class="card-head-row">
+                <div>
+                  <h2 data-i18n="breakdownTitle">各 Chapter 收錄與掌握度</h2>
+                  <div id="breakdown-sub" class="card-head-sub">依自然章節編號排序（Ch.2 → Ch.27）</div>
+                </div>
+                <button id="btn-home-sync-refresh" class="icon-circle-sm" type="button" title="同步 Google Drive 並重新整理">↻</button>
+              </div>
+              <div id="home-segmented-bar" class="segmented-hbar"></div>
+              <div id="home-chapter-breakdown" class="chapter-breakdown-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 2: FLASHCARDS (SELECTOR + RANDOM DECK + RANDOM QUESTION) ==================== -->
+        <section id="view-flashcards" class="view-section" aria-label="同步問答閃卡">
+          <!-- ① 選 Flashcard 處：隨機 Flashcard 牌組產生器 -->
+          <div class="random-builder-card sq-card">
+            <div>
+              <strong style="font-size: 0.96rem; display: block" data-i18n="randDeckTitle">🎲 選 Flashcard · 隨機閃卡組產生器</strong>
+              <span style="font-size: 0.78rem; color: var(--ink-secondary)" data-i18n="randDeckSub">
+                隨機挑一個章節，或自選範圍與張數抽出今日隨機練習卡組（問題與答案同步並排顯示）
+              </span>
+            </div>
+            <div class="random-builder-controls">
+              <select id="rand-source-select" class="soft-select" aria-label="隨機抽卡範圍">
+                <option value="added">已收錄的閃卡</option>
+                <option value="all-doc">原檔全部題目</option>
+                <option value="pending">僅限待複習題目</option>
+              </select>
+              <select id="rand-count-select" class="soft-select" aria-label="抽取張數">
+                <option value="5">抽 5 張</option>
+                <option value="10">抽 10 張</option>
+                <option value="15">抽 15 張</option>
+                <option value="all">全部隨機排序</option>
+              </select>
+              <button id="btn-build-random-deck" class="btn-soft accent" type="button">
+                <span>🎲</span>
+                <span data-i18n="randDeckBtn">隨機抽出卡組</span>
+              </button>
+              <button id="btn-pick-random-chapter" class="btn-soft" type="button">
+                <span>🎯</span>
+                <span data-i18n="randChBtn">隨機挑一章</span>
               </button>
             </div>
           </div>
 
-          <!-- Global Layout Edit Instruction Strip -->
-          <div class="layout-edit-banner sq-md">
-            <span>✨ 佈局編輯模式已開啟：可拖曳卡片頂部橫條移動/重排位置，或拖曳卡片右下角藍色控點自由縮放尺寸，完成後點擊「保存佈局」。</span>
-            <span id="layout-saved-timestamp" style="opacity: 0.8">自動儲存至本地與 Google Drive</span>
+          <!-- Filter Bar (View Mode + Chapter / Day Tabs + Random Question Mode) -->
+          <div class="fc-filter-bar sq-md">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <div class="pill-tabs" role="tablist">
+                <button class="pill-tab active" data-fc-mode="list" type="button" data-i18n="fcModeList">雙欄總覽</button>
+                <button class="pill-tab" data-fc-mode="random-q" type="button" data-i18n="fcModeRandomQ">🎲 隨機題目模式</button>
+              </div>
+              <div id="fc-scope-tabs" class="pill-tabs" role="tablist"></div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <button id="btn-fc-random-next" class="btn-soft accent" type="button" title="無重複隨機跳到下一題 (快捷鍵 R)">
+                <span>🎲</span>
+                <span data-i18n="randNextBtn">隨機抽一題 (R)</span>
+              </button>
+              <button id="btn-fc-clear-random-deck" class="btn-soft" type="button" style="display: none">
+                <span>✕ 結束隨機卡組</span>
+              </button>
+            </div>
           </div>
 
-          <!-- ==================== VIEW 1: OVERVIEW BENTO DASHBOARD (IMG_9401) ==================== -->
-          <section id="view-overview" class="view-panel active" aria-label="空間儀表盤總覽">
-            <div id="overview-bento-grid" class="bento-grid"></div>
-          </section>
-
-          <!-- ==================== VIEW 2: SIMULTANEOUS Q&A FLASHCARDS ==================== -->
-          <section id="view-flashcards" class="view-panel" aria-label="同步問答閃卡">
-            <div class="flashcards-toolbar sq-card">
-              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-                <div class="seg-group" role="tablist" aria-label="閃卡檢視模式">
-                  <button class="seg-btn active" data-fc-mode="stream" type="button">雙欄流</button>
-                  <button class="seg-btn" data-fc-mode="focus" type="button">專注單卡</button>
-                  <button class="seg-btn" data-fc-mode="canvas" type="button">自由畫布 (拖曳定位)</button>
-                </div>
-
-                <div id="fc-day-filter-group" class="seg-group" role="tablist" aria-label="按加入天數篩選"></div>
-              </div>
-
-              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
-                <button id="btn-fc-shuffle" class="btn-pill" type="button">隨機洗牌</button>
-                <button id="btn-fc-goto-docs" class="btn-pill solid-accent" type="button">＋ 從 Docs 原檔加入題目</button>
-              </div>
+          <!-- Active Random Question Progress Banner -->
+          <div id="random-quiz-banner" class="random-quiz-banner sq-md" style="display: none">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+              <span class="tag-chip accent-solid" id="random-pool-badge">🎲 無重複隨機題目 · 1 / 5</span>
+              <span id="random-deck-caption" style="font-size: 0.82rem; color: var(--ink-secondary)">每按一次「隨機下一題」皆不重複，抽完一輪自動重新洗牌</span>
             </div>
+            <div style="display: flex; gap: 8px">
+              <button id="btn-random-reshuffle" class="btn-soft" type="button">↻ 重新洗牌本輪</button>
+              <button id="btn-random-step-next" class="btn-soft accent" type="button">🎲 隨機下一題 →</button>
+            </div>
+          </div>
 
-            <!-- Global Card Geometry Sliders (visible in Edit Layout Mode) -->
-            <div class="card-geometry-controls sq-md">
-              <label class="geo-slider-item">
-                <span>Q / A 欄寬比例</span>
-                <input id="slider-qa-split" type="range" min="32" max="64" value="46" />
-                <span id="qa-split-val">46%</span>
+          <!-- Simultaneous Q&A Flashcards Container -->
+          <div id="fc-cards-list" class="fc-cards-list"></div>
+        </section>
+
+        <!-- ==================== VIEW 3: DOCS EDITOR (CHAPTER-SORTED + AUTO-SYNC TO DRIVE) ==================== -->
+        <section id="view-docs" class="view-section" aria-label="Docs 原檔閱讀與編輯">
+          <!-- Chapter Navigation & Auto-Sync Status Bar -->
+          <div class="docs-chapter-bar sq-md">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <strong style="font-size: 0.8rem; color: var(--ink-secondary)" data-i18n="docsChLabel">章節排序目錄：</strong>
+              <div id="docs-chapter-pills" class="pill-tabs"></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+              <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer">
+                <input id="chk-writeback-chapter-sort" type="checkbox" style="accent-color: var(--accent)" />
+                <span data-i18n="writebackSort">寫回原檔時依 Chapter 排序</span>
               </label>
-              <label class="geo-slider-item">
-                <span>雙欄流卡片寬度</span>
-                <input id="slider-card-width" type="range" min="58" max="100" value="100" />
-                <span id="card-width-val">100%</span>
-              </label>
-              <label class="geo-slider-item">
-                <span>字體縮放</span>
-                <input id="slider-font-scale" type="range" min="0.85" max="1.3" step="0.05" value="1.0" />
-                <span id="font-scale-val">1.0×</span>
-              </label>
+              <span id="docs-drive-sync-pill" class="sync-status-pill">本地自動儲存中</span>
             </div>
+          </div>
 
-            <div id="flashcards-stage" class="flashcards-stage mode-stream"></div>
-          </section>
+          <!-- Rich-Text Toolbar (Exact IMG_9402 Vibe) -->
+          <div class="docs-toolbar sq-md">
+            <div class="docs-fmt-group">
+              <button class="fmt-btn" data-cmd="bold" type="button" title="粗體"><b>B</b></button>
+              <button class="fmt-btn" data-cmd="italic" type="button" title="斜體"><i>I</i></button>
+              <button class="fmt-btn" data-cmd="underline" type="button" title="底線"><u>U</u></button>
+              <button class="fmt-btn" data-cmd="strikeThrough" type="button" title="刪除線"><s>S</s></button>
+              <button class="fmt-btn" id="btn-fmt-highlight" type="button" title="螢光重點">🖍</button>
+              <button class="fmt-btn" data-cmd="insertUnorderedList" type="button" title="清單">• 清單</button>
+              <button class="fmt-btn" data-cmd="undo" type="button" title="復原">↶</button>
+              <button class="fmt-btn" data-cmd="redo" type="button" title="重做">↷</button>
+              <button class="fmt-btn" id="btn-docs-paper-mode" type="button">🌙 深色原檔</button>
+            </div>
+            <div class="docs-fmt-group">
+              <button class="fmt-btn" id="btn-docs-add-row" type="button">＋ 新增題目</button>
+              <button class="fmt-btn" id="btn-docs-export" type="button">⬇ 匯出 .docx</button>
+              <button class="btn-soft accent" id="btn-docs-sync-now" type="button" style="padding: 6px 14px; font-size: 0.77rem">
+                ☁ 立即寫回 Google Drive
+              </button>
+            </div>
+          </div>
 
-          <!-- ==================== VIEW 3: DOCS VIEWER & EDITOR (IMG_9402) ==================== -->
-          <section id="view-docs" class="view-panel" aria-label="Docs 原檔閱讀與編輯器">
-            <div class="docs-toolbar sq-md">
-              <div class="docs-format-group">
-                <button class="fmt-btn" data-cmd="bold" type="button" title="粗體 (Ctrl+B)"><b>B</b></button>
-                <button class="fmt-btn" data-cmd="italic" type="button" title="斜體 (Ctrl+I)"><i>I</i></button>
-                <button class="fmt-btn" data-cmd="underline" type="button" title="底線 (Ctrl+U)"><u>U</u></button>
-                <button class="fmt-btn" data-cmd="strikeThrough" type="button" title="刪除線"><s>S</s></button>
-                <button class="fmt-btn" id="btn-fmt-highlight" type="button" title="螢光筆標記重點">🖍 重點</button>
-                <span class="fmt-sep"></span>
-                <button class="fmt-btn" data-cmd="insertUnorderedList" type="button" title="項目符號">• 清單</button>
-                <button class="fmt-btn" data-cmd="undo" type="button" title="復原">↶</button>
-                <button class="fmt-btn" data-cmd="redo" type="button" title="重做">↷</button>
-                <span class="fmt-sep"></span>
-                <button id="btn-docs-paper-toggle" class="fmt-btn" type="button" title="切換深色/淺色原檔紙張">🌙 深色原檔</button>
-              </div>
-
-              <div class="docs-format-group">
-                <button id="btn-docs-add-row" class="fmt-btn" type="button">＋ 新增題目列</button>
-                <button id="btn-docs-export" class="fmt-btn" type="button">⬇ 匯出 .docx</button>
-                <button id="btn-docs-save-drive" class="btn-pill solid-accent" type="button" style="padding: 6px 14px; font-size: 0.78rem">
-                  ☁ 保存至 Drive / flashcard
-                </button>
+          <!-- Docs Paper Canvas -->
+          <div id="docs-paper" class="docs-paper sq-card">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid rgba(148, 163, 184, 0.25)">
+              <div id="docs-title-editable" contenteditable="true" spellcheck="false" style="font-size: 1.1rem; font-weight: 700; outline: none"></div>
+              <div style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem">
+                <span id="docs-added-summary">已加入閃卡 5 / 9 題</span>
+                <button id="btn-docs-add-all" class="doc-add-btn" type="button">將本檢視未加入題目加入 Day 3</button>
               </div>
             </div>
+            <div id="docs-grouped-body"></div>
+          </div>
+        </section>
 
-            <div id="docs-paper-shell" class="docs-paper-shell sq-card">
-              <div class="docs-paper-header">
-                <div id="docs-title-editable" class="docs-title-editable" contenteditable="true" spellcheck="false"></div>
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 0.78rem; opacity: 0.8">
-                  <span id="docs-progress-pill">已加入閃卡 4 / 8 題</span>
-                  <button id="btn-docs-add-all-remaining" class="doc-add-btn" type="button">將全部未加入題目加入 Day 3</button>
+        <!-- ==================== VIEW 4: GOOGLE DRIVE (flashcard FOLDER) ==================== -->
+        <section id="view-drive" class="view-section" aria-label="Google Drive 同步">
+          <div class="two-col-grid">
+            <article class="surface-card sq-card">
+              <div class="card-head-row">
+                <div>
+                  <h2>Google Drive · <code>flashcard</code> 資料夾</h2>
+                  <div class="card-head-sub">在 Docs 編輯任何題目或答案，停筆 2.5 秒後將透過原檔 XML 修補自動寫回 Google Drive 原檔！</div>
                 </div>
+                <span id="drive-status-badge" class="tag-chip">未連線</span>
               </div>
-              <div id="docs-table-container" class="docs-table-container"></div>
-            </div>
-          </section>
 
-          <!-- ==================== VIEW 4: GOOGLE DRIVE (flashcard FOLDER) ==================== -->
-          <section id="view-drive" class="view-panel" aria-label="Google Drive 同步中心">
-            <div class="drive-grid">
-              <!-- Left Card: Connection & Auto-Create "flashcard" Folder -->
-              <div class="drive-card sq-card">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
-                  <div>
-                    <h2 style="margin: 0; font-size: 1.15rem">Google Drive · <code>flashcard</code> 資料夾</h2>
-                    <p style="margin: 4px 0 0; font-size: 0.82rem; color: var(--ink-secondary)">
-                      自動在你的 Google Drive 建立並接入 <strong>flashcard</strong> 資料夾，同步所有閃卡、Day 紀錄、原檔與卡片佈局。
-                    </p>
-                  </div>
-                  <span id="drive-conn-badge" class="pill-tag">未連線 (本地自動儲存中)</span>
-                </div>
+              <div class="pill-tabs" style="align-self: flex-start">
+                <button class="pill-tab active" data-drive-mode="oauth" type="button">OAuth 2.0 直連</button>
+                <button class="pill-tab" data-drive-mode="apps-script" type="button">Apps Script 1 分鐘橋接</button>
+              </div>
 
-                <div class="seg-group" style="align-self: flex-start">
-                  <button class="seg-btn active" data-drive-mode="oauth" type="button">方式一：OAuth 2.0 直連</button>
-                  <button class="seg-btn" data-drive-mode="apps-script" type="button">方式二：Apps Script 1分鐘免設定橋接</button>
-                </div>
-
-                <!-- OAuth Mode Inputs -->
-                <div id="drive-oauth-panel" style="display: flex; flex-direction: column; gap: 10px">
-                  <label style="font-size: 0.78rem; font-weight: 600; color: var(--ink-secondary)">
-                    Google Cloud OAuth Client ID（Authorized JS Origin 填入 <code id="origin-hint-code"></code>）
-                  </label>
-                  <input
-                    id="input-gdrive-client-id"
-                    class="drive-input sq-sm"
-                    type="text"
-                    placeholder="xxxxxxxxxx-xxxxxxxxxxxxxxxx.apps.googleusercontent.com"
-                  />
-                  <div style="display: flex; gap: 10px; flex-wrap: wrap">
-                    <button id="btn-drive-oauth-connect" class="btn-pill solid-accent" type="button">
-                      連接 Google Drive 並建立 flashcard 資料夾
-                    </button>
-                    <button id="btn-drive-disconnect" class="btn-pill" type="button" style="display: none">
-                      中斷連線
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Apps Script Bridge Mode Inputs -->
-                <div id="drive-script-panel" style="display: none; flex-direction: column; gap: 10px">
-                  <label style="font-size: 0.78rem; font-weight: 600; color: var(--ink-secondary)">
-                    Google Apps Script Web App URL（自動建立 <code>flashcard</code> 資料夾，無須設定 OAuth）
-                  </label>
-                  <input
-                    id="input-apps-script-url"
-                    class="drive-input sq-sm"
-                    type="url"
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                  />
-                  <div style="display: flex; gap: 10px; flex-wrap: wrap">
-                    <button id="btn-drive-script-connect" class="btn-pill solid-accent" type="button">
-                      測試連線並同步 flashcard 資料夾
-                    </button>
-                    <button id="btn-copy-apps-script" class="btn-pill" type="button">
-                      複製 Apps Script 程式碼
-                    </button>
-                  </div>
-                  <pre id="apps-script-preview" class="code-snippet-box sq-sm"></pre>
-                </div>
-
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; padding-top: 6px; border-top: 1px solid var(--rim-subtle)">
-                  <button id="btn-drive-push-state" class="btn-pill solid-ink" type="button">
-                    ☁ 立即同步閃卡 &amp; 佈局到 Drive
-                  </button>
-                  <button id="btn-drive-pull-state" class="btn-pill" type="button">
-                    ⬇ 從 Drive 載入雲端進度
-                  </button>
-                  <button id="btn-drive-upload-current-docx" class="btn-pill" type="button">
-                    📄 上傳目前 .docx 至 flashcard 資料夾
-                  </button>
+              <div id="drive-oauth-box" style="display: flex; flex-direction: column; gap: 10px">
+                <label style="font-size: 0.77rem; font-weight: 600; color: var(--ink-secondary)">
+                  Google OAuth Client ID（Origin：<code id="origin-hint-code"></code>）
+                </label>
+                <input id="input-gdrive-client-id" class="soft-input sq-sm" type="text" placeholder="xxxx.apps.googleusercontent.com" />
+                <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                  <button id="btn-drive-oauth-connect" class="btn-soft accent" type="button">連接 Google Drive 並建立 flashcard 資料夾</button>
+                  <button id="btn-drive-disconnect" class="btn-soft" type="button" style="display: none">中斷連線</button>
                 </div>
               </div>
 
-              <!-- Right Card: Drive Folder Files Browser -->
-              <div class="drive-card sq-card">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap">
-                  <h3 style="margin: 0; font-size: 1rem">雲端 <code>flashcard/</code> 文件與原檔列表</h3>
-                  <div style="display: flex; gap: 6px">
-                    <button id="btn-drive-refresh-folder" class="chip-action-btn" type="button">重新整理</button>
-                    <button id="btn-drive-browse-all" class="chip-action-btn" type="button">瀏覽整個 Drive 的 Docs</button>
+              <div id="drive-script-box" style="display: none; flex-direction: column; gap: 10px">
+                <label style="font-size: 0.77rem; font-weight: 600; color: var(--ink-secondary)">
+                  Apps Script Web App URL（自動建立 <code>flashcard</code> 資料夾並原位覆寫 .docx）
+                </label>
+                <input id="input-apps-script-url" class="soft-input sq-sm" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
+                <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                  <button id="btn-drive-script-connect" class="btn-soft accent" type="button">連線並確認 flashcard 資料夾</button>
+                  <button id="btn-copy-apps-script" class="btn-soft" type="button">複製 Apps Script 程式碼</button>
+                </div>
+                <pre id="apps-script-code" class="code-box sq-sm"></pre>
+              </div>
+
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--border-subtle)">
+                <button id="btn-drive-push-all" class="btn-soft dark-ink" type="button">☁ 同步全部閃卡與原檔到 Drive</button>
+                <button id="btn-drive-pull-all" class="btn-soft" type="button">⬇ 從 Drive 載入雲端進度</button>
+              </div>
+            </article>
+
+            <article class="surface-card sq-card">
+              <div class="card-head-row">
+                <div>
+                  <h3>雲端 <code>flashcard/</code> 文件列表</h3>
+                  <div id="drive-files-hint" class="card-head-sub">開啟雲端 .docx 後，編輯內容將自動同步覆寫該雲端原檔</div>
+                </div>
+                <div style="display: flex; gap: 6px">
+                  <button id="btn-drive-list-folder" class="chip-btn" type="button">flashcard/</button>
+                  <button id="btn-drive-list-all" class="chip-btn" type="button">全部 Drive</button>
+                </div>
+              </div>
+              <div id="drive-files-container" style="display: flex; flex-direction: column; gap: 8px"></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 5: APPEARANCE & SETTINGS ==================== -->
+        <section id="view-settings" class="view-section" aria-label="外觀與系統設定">
+          <div class="two-col-grid">
+            <article class="surface-card sq-card">
+              <h2>強調色與連續曲率圓角</h2>
+              <div style="display: flex; flex-direction: column; gap: 14px">
+                <div>
+                  <label style="font-size: 0.8rem; font-weight: 700; display: block; margin-bottom: 8px">自訂任意強調色 (Accent Hex)</label>
+                  <div style="display: flex; align-items: center; gap: 10px">
+                    <input id="settings-custom-accent" type="color" value="#D96F52" style="width: 44px; height: 36px; border: none; background: transparent; cursor: pointer" />
+                    <span id="settings-accent-hex" style="font-family: 'JetBrains Mono', monospace; font-weight: 700">#D96F52</span>
                   </div>
                 </div>
-                <p id="drive-folder-info" style="margin: 0; font-size: 0.79rem; color: var(--ink-secondary)">
-                  連線後會自動列出 <code>Google Drive / flashcard/</code> 內所有 <code>.docx</code> 與 Google Docs，點擊即可在「Docs 原檔」檢視、編輯與加入閃卡。
-                </p>
-                <div id="drive-file-list" class="drive-file-list"></div>
+
+                <div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px">
+                    <span>連續曲率圓角半徑 (Radius)</span>
+                    <span id="settings-radius-val">24px</span>
+                  </div>
+                  <input id="settings-radius-slider" type="range" min="12" max="40" value="24" style="width: 100%; accent-color: var(--accent)" />
+                </div>
+
+                <div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px">
+                    <span>連續曲率超橢圓指數 (Squircle n)</span>
+                    <span id="settings-k-val">1.48</span>
+                  </div>
+                  <input id="settings-k-slider" type="range" min="1.0" max="2.0" step="0.02" value="1.48" style="width: 100%; accent-color: var(--accent)" />
+                </div>
               </div>
-            </div>
-          </section>
-        </main>
-      </div>
+            </article>
+
+            <article class="surface-card sq-card">
+              <h2>Samsung Galaxy S9 動態壁紙設定</h2>
+              <div style="display: flex; flex-direction: column; gap: 14px">
+                <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.86rem; font-weight: 700; cursor: pointer">
+                  <span>開啟 S9 動態絲綢光波壁紙＋毛玻璃模式</span>
+                  <input id="settings-s9-checkbox" type="checkbox" style="width: 18px; height: 18px; accent-color: var(--accent)" />
+                </label>
+
+                <div class="pill-tabs" style="align-self: flex-start">
+                  <button class="pill-tab active" data-wp-preset="s9-silk" type="button">S9 Silk</button>
+                  <button class="pill-tab" data-wp-preset="s9-midnight" type="button">S9 Midnight</button>
+                  <button class="pill-tab" data-wp-preset="s9-pearl" type="button">S9 Pearl</button>
+                </div>
+
+                <div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px">
+                    <span>光波流動速度</span>
+                    <span id="settings-wp-speed-val">1.0×</span>
+                  </div>
+                  <input id="settings-wp-speed" type="range" min="0.2" max="2.4" step="0.1" value="1.0" style="width: 100%; accent-color: var(--accent)" />
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
     </div>
-
-    <!-- Bottom Floating Navigation Pill Dock (Exact IMG_9401 Signature Dock) -->
-    <nav class="bottom-nav-dock" aria-label="底部快捷導覽列">
-      <button class="dock-tab-btn active" data-nav="overview" type="button">Overview</button>
-      <button class="dock-tab-btn" data-nav="flashcards" type="button">Flashcards</button>
-      <button class="dock-tab-btn" data-nav="docs" type="button">Docs 原檔</button>
-      <button class="dock-tab-btn" data-nav="drive" type="button">Google Drive</button>
-      <button id="dock-quick-upload-btn" class="dock-plus-btn" type="button" title="上傳新的 .docx 問答原檔" aria-label="上傳 .docx">
-        +
-      </button>
-    </nav>
 
     <script type="module" src="/src/main.js"></script>
   </body>

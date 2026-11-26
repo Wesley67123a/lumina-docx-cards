@@ -4,11 +4,98 @@ const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
 /**
+ * Extracts normalized chapter number & display label from section headings,
+ * source footnotes (e.g. "*Oxford Ch.8 QB", "*HKDSE Bio Ch.17 QB"), or question text.
+ */
+export function detectChapterMeta(section = '', source = '', question = '') {
+  const candidates = [section, source, question];
+  for (const text of candidates) {
+    if (!text) continue;
+    // Match "Chapter 8: Transport in Humans", "Ch. 17", "Ch.8", "Ch 2", "第8課", "第17章"
+    const engMatch = text.match(/(?:Chapter|Ch\.?)\s*(\d+(?:\.\d+)?)(?:\s*[:：\-—]\s*([^*\n(]+))?/i);
+    if (engMatch) {
+      const num = parseFloat(engMatch[1]);
+      const subtitle = engMatch[2] ? engMatch[2].trim().replace(/\s+QB.*$/i, '') : '';
+      return {
+        chapterNum: num,
+        chapterKey: `ch-${num}`,
+        chapterShort: `Ch.${engMatch[1]}`,
+        chapterLabel: subtitle ? `Ch.${engMatch[1]} · ${subtitle}` : `Chapter ${engMatch[1]}`,
+      };
+    }
+    const zhMatch = text.match(/第\s*(\d+)\s*[章課節](?:\s*[:：\-—]?\s*([^\n(]+))?/);
+    if (zhMatch) {
+      const num = parseFloat(zhMatch[1]);
+      const subtitle = zhMatch[2] ? zhMatch[2].trim() : '';
+      return {
+        chapterNum: num,
+        chapterKey: `ch-${num}`,
+        chapterShort: `Ch.${zhMatch[1]}`,
+        chapterLabel: subtitle ? `Ch.${zhMatch[1]} · ${subtitle}` : `第 ${zhMatch[1]} 章`,
+      };
+    }
+  }
+
+  return {
+    chapterNum: 9999,
+    chapterKey: 'ch-general',
+    chapterShort: 'General',
+    chapterLabel: 'General / 其他章節',
+  };
+}
+
+/**
+ * Stable natural numeric sort by Chapter number (Ch.2 -> Ch.8 -> Ch.17 -> Ch.27 -> General).
+ */
+export function sortRowsByChapter(rows) {
+  return [...rows].sort((a, b) => {
+    const na = a.chapterNum ?? 9999;
+    const nb = b.chapterNum ?? 9999;
+    if (na !== nb) return na - nb;
+    return (a.originalOrder ?? a.index ?? 0) - (b.originalOrder ?? b.index ?? 0);
+  });
+}
+
+/**
+ * Groups rows by Chapter in natural numeric order.
+ */
+export function groupRowsByChapter(rows) {
+  const sorted = sortRowsByChapter(rows);
+  const map = new Map();
+  for (const row of sorted) {
+    const key = row.chapterKey || 'ch-general';
+    if (!map.has(key)) {
+      map.set(key, {
+        chapterKey: key,
+        chapterNum: row.chapterNum ?? 9999,
+        chapterShort: row.chapterShort || 'General',
+        chapterLabel: row.chapterLabel || 'General',
+        rows: [],
+      });
+    } else if (
+      row.chapterLabel &&
+      row.chapterLabel.length > map.get(key).chapterLabel.length &&
+      !row.chapterLabel.startsWith('General')
+    ) {
+      map.get(key).chapterLabel = row.chapterLabel;
+    }
+    map.get(key).rows.push(row);
+  }
+  return Array.from(map.values()).sort((a, b) => a.chapterNum - b.chapterNum);
+}
+
+/**
  * Parses a .docx File or ArrayBuffer into an editable document structure
- * containing Q&A table rows (preserving rich formatting, marks, sources, images, and page breaks).
+ * AND keeps original XML table/row coordinates so edits can be patched in-place
+ * without losing fonts, images, headers, or Word/Goodnotes layout!
  */
 export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx') {
-  const zip = await JSZip.loadAsync(fileOrBuffer);
+  const rawBuffer =
+    fileOrBuffer instanceof ArrayBuffer
+      ? fileOrBuffer.slice(0)
+      : await fileOrBuffer.arrayBuffer();
+
+  const zip = await JSZip.loadAsync(rawBuffer);
   const docXmlFile = zip.file('word/document.xml');
   if (!docXmlFile) {
     throw new Error('無效的 .docx 檔案：缺少 word/document.xml');
@@ -28,6 +115,7 @@ export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx'
   let docTitle = cleanFileName(fileName);
   let currentSection = docTitle;
   let pendingParagraphs = [];
+  let tableCounter = 0;
 
   const children = Array.from(body.childNodes).filter((n) => n.nodeType === 1);
 
@@ -43,7 +131,7 @@ export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx'
       const pText = extractParagraphText(node).trim();
       if (pText) {
         const isHeading = checkIsHeading(node, pText);
-        if (isHeading && pText.length < 150 && !looksLikeQAInline(pText)) {
+        if (isHeading && pText.length < 160 && !looksLikeQAInline(pText)) {
           if (rows.length === 0 && docTitle === cleanFileName(fileName)) {
             docTitle = pText;
           }
@@ -58,6 +146,7 @@ export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx'
         }
       }
     } else if (localName === 'tbl') {
+      const thisTblIdx = tableCounter++;
       const trNodes = getDirectChildElements(node, 'tr');
       for (let rIdx = 0; rIdx < trNodes.length; rIdx++) {
         const tr = trNodes[rIdx];
@@ -75,8 +164,10 @@ export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx'
         const hasBreakInRow = nodeHasPageBreak(tr);
         rows.push(
           buildDocRow({
-            id: `row-${rows.length + 1}-${hashStr(qRaw.slice(0, 48) + rIdx)}`,
+            id: `row-${rows.length + 1}-${hashStr(qRaw.slice(0, 48) + thisTblIdx + rIdx)}`,
             index: rows.length + 1,
+            originalOrder: rows.length,
+            xmlLocator: { tblIdx: thisTblIdx, trIdx: rIdx },
             section: currentSection,
             questionHtml: leftCell.html,
             answerHtml: rightCell.html,
@@ -93,7 +184,6 @@ export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx'
     }
   }
 
-  // Fallback for non-table Q:/A: documents
   if (rows.length === 0 && pendingParagraphs.length > 0) {
     const fallbackRows = parseParagraphPairs(pendingParagraphs, currentSection);
     rows.push(...fallbackRows);
@@ -103,12 +193,12 @@ export async function parseDocxDocument(fileOrBuffer, fileName = 'Document.docx'
     title: docTitle || cleanFileName(fileName),
     fileName,
     rows,
+    rawBuffer,
   };
 }
 
 /**
- * Converts a DocRow (possibly freshly edited in the Docs rich-text editor) into
- * clean structured Q&A metadata for both Docs view and simultaneous Flashcards.
+ * Normalizes a DocRow with automatic Chapter detection, marks, source, and answer points.
  */
 export function buildDocRow(raw) {
   const qLines =
@@ -171,6 +261,17 @@ export function buildDocRow(raw) {
     totalMarks = summedMarks;
   }
 
+  // Detect chapter metadata (prioritize explicit section or source footnote)
+  const chapterMeta =
+    raw.chapterNum !== undefined && raw.chapterKey
+      ? {
+          chapterNum: raw.chapterNum,
+          chapterKey: raw.chapterKey,
+          chapterShort: raw.chapterShort || `Ch.${raw.chapterNum}`,
+          chapterLabel: raw.chapterLabel || `Chapter ${raw.chapterNum}`,
+        }
+      : detectChapterMeta(raw.section || '', source, questionFull);
+
   const questionHtml =
     raw.questionHtml ||
     linesToSafeHtml(source ? [...qLinesCopy, `*${source}`] : qLinesCopy);
@@ -179,7 +280,10 @@ export function buildDocRow(raw) {
   return {
     id: raw.id || `row-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     index: raw.index || 1,
-    section: raw.section || '',
+    originalOrder: raw.originalOrder ?? (raw.index ? raw.index - 1 : 0),
+    xmlLocator: raw.xmlLocator || null,
+    section: raw.section || chapterMeta.chapterLabel,
+    ...chapterMeta,
     question: questionClean || questionFull,
     questionWithMarks: questionFull,
     questionRaw: qLines.join('\n'),
@@ -192,11 +296,12 @@ export function buildDocRow(raw) {
     questionImages: raw.questionImages || [],
     answerImages: raw.answerImages || [],
     pageBreakAfter: Boolean(raw.pageBreakAfter),
+    dirty: Boolean(raw.dirty),
   };
 }
 
 /**
- * Re-parses a single row after inline editing in the Docs editor.
+ * Re-parses a row after inline editing in the Docs view and marks it dirty for XML patching.
  */
 export function updateRowFromHtml(existingRow, newQuestionHtml, newAnswerHtml) {
   const qLines = htmlToLines(newQuestionHtml);
@@ -207,15 +312,165 @@ export function updateRowFromHtml(existingRow, newQuestionHtml, newAnswerHtml) {
     answerHtml: newAnswerHtml,
     questionLines: qLines,
     answerLines: aLines,
-    source: '', // Re-detect from edited text
+    source: '', // re-detect from edited text
+    chapterNum: undefined,
+    chapterKey: undefined,
+    dirty: true,
   });
 }
 
 /**
- * Generates a real downloadable / Drive-uploadable .docx Blob from the current edited document,
- * preserving 2-column Q&A borders, rich text formatting (B/I/U/S/highlight), and page breaks!
+ * IN-PLACE OOXML PATCHER:
+ * When an original .docx ArrayBuffer is available (loaded from Google Drive or local file),
+ * patches ONLY the edited <w:tc> cells (and appends new rows) directly inside the original
+ * ZIP archive so all Word styles, fonts, embedded images, margins, and headers survive 100%!
+ * If `sortByChapter` is true, writes a clean chapter-sorted .docx preserving rich formatting.
  */
-export async function exportDocToDocxBlob(doc) {
+export async function buildUpdatedDocxBlob(doc, rawOriginalBuffer = null, { sortByChapter = false } = {}) {
+  // If user wants physical chapter-sorted writeback OR we have no original binary buffer, generate clean sorted .docx
+  if (!rawOriginalBuffer || sortByChapter) {
+    const orderedRows = sortByChapter ? sortRowsByChapter(doc.rows) : doc.rows;
+    return exportDocToDocxBlob({ ...doc, rows: orderedRows }, { includeChapterHeaders: sortByChapter });
+  }
+
+  try {
+    const zip = await JSZip.loadAsync(rawOriginalBuffer.slice(0));
+    const docXmlFile = zip.file('word/document.xml');
+    if (!docXmlFile) {
+      return exportDocToDocxBlob(doc);
+    }
+
+    const xmlText = await docXmlFile.async('text');
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+    const body = xmlDoc.getElementsByTagNameNS(W_NS, 'body')[0];
+    if (!body) return exportDocToDocxBlob(doc);
+
+    const tables = getDirectChildElements(body, 'tbl');
+    const dirtyRows = doc.rows.filter((r) => r.dirty || !r.xmlLocator);
+
+    for (const row of dirtyRows) {
+      if (row.xmlLocator && tables[row.xmlLocator.tblIdx]) {
+        const tbl = tables[row.xmlLocator.tblIdx];
+        const trs = getDirectChildElements(tbl, 'tr');
+        const tr = trs[row.xmlLocator.trIdx];
+        if (tr) {
+          const tcs = getDirectChildElements(tr, 'tc');
+          if (tcs.length >= 2) {
+            replaceCellParagraphsInPlace(xmlDoc, tcs[0], row.questionHtml);
+            replaceCellParagraphsInPlace(xmlDoc, tcs[1], row.answerHtml);
+          }
+        }
+      } else if (tables.length > 0) {
+        // Append newly created custom row to the last table, cloning cell properties!
+        const lastTbl = tables[tables.length - 1];
+        const existingTrs = getDirectChildElements(lastTbl, 'tr');
+        const templateTr = existingTrs[existingTrs.length - 1];
+        if (templateTr) {
+          const newTr = templateTr.cloneNode(true);
+          const tcs = getDirectChildElements(newTr, 'tc');
+          if (tcs.length >= 2) {
+            replaceCellParagraphsInPlace(xmlDoc, tcs[0], row.questionHtml);
+            replaceCellParagraphsInPlace(xmlDoc, tcs[1], row.answerHtml);
+          }
+          lastTbl.appendChild(newTr);
+        }
+      }
+    }
+
+    const serializer = new XMLSerializer();
+    const patchedXml = serializer.serializeToString(xmlDoc);
+    zip.file('word/document.xml', patchedXml);
+
+    return await zip.generateAsync({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+  } catch (err) {
+    console.warn('In-place XML patch fallback to clean export:', err);
+    return exportDocToDocxBlob(doc);
+  }
+}
+
+/**
+ * Replaces the <w:p> children of an existing <w:tc> while preserving <w:tcPr> (borders, shading, width)
+ * AND preserving any embedded <w:drawing> / image paragraphs!
+ */
+function replaceCellParagraphsInPlace(xmlDoc, tcNode, newHtml) {
+  // Capture sample run properties (<w:rPr>) and paragraph properties (<w:pPr>) from the cell to maintain font family & size!
+  const firstP = tcNode.getElementsByTagNameNS(W_NS, 'p')[0];
+  const samplePPr = firstP ? getDirectChildElements(firstP, 'pPr')[0]?.cloneNode(true) : null;
+  const firstR = firstP ? firstP.getElementsByTagNameNS(W_NS, 'r')[0] : null;
+  const sampleRPr = firstR ? getDirectChildElements(firstR, 'rPr')[0]?.cloneNode(true) : null;
+
+  // Keep any paragraphs that contain embedded drawings/images
+  const drawingParagraphs = [];
+  const existingPs = getDirectChildElements(tcNode, 'p');
+  for (const p of existingPs) {
+    if (p.getElementsByTagName('w:drawing').length > 0 || p.getElementsByTagName('a:blip').length > 0) {
+      drawingParagraphs.push(p.cloneNode(true));
+    }
+    tcNode.removeChild(p);
+  }
+
+  const parsedParas = parseHtmlIntoStructuredRuns(newHtml);
+  for (const paraRuns of parsedParas) {
+    const pEl = xmlDoc.createElementNS(W_NS, 'w:p');
+    if (samplePPr) pEl.appendChild(samplePPr.cloneNode(true));
+
+    for (const run of paraRuns) {
+      const rEl = xmlDoc.createElementNS(W_NS, 'w:r');
+      const rPr = sampleRPr ? sampleRPr.cloneNode(true) : xmlDoc.createElementNS(W_NS, 'w:rPr');
+
+      toggleRPrChild(xmlDoc, rPr, 'b', run.b);
+      toggleRPrChild(xmlDoc, rPr, 'i', run.i);
+      toggleRPrChild(xmlDoc, rPr, 'strike', run.s);
+      if (run.u) {
+        const uEl = xmlDoc.createElementNS(W_NS, 'w:u');
+        uEl.setAttributeNS(W_NS, 'w:val', 'single');
+        rPr.appendChild(uEl);
+      }
+      if (run.hl) {
+        const hlEl = xmlDoc.createElementNS(W_NS, 'w:highlight');
+        hlEl.setAttributeNS(W_NS, 'w:val', 'yellow');
+        rPr.appendChild(hlEl);
+      }
+
+      if (rPr.childNodes.length > 0) rEl.appendChild(rPr);
+
+      const tEl = xmlDoc.createElementNS(W_NS, 'w:t');
+      tEl.setAttribute('xml:space', 'preserve');
+      tEl.textContent = run.text;
+      rEl.appendChild(tEl);
+      pEl.appendChild(rEl);
+    }
+
+    tcNode.appendChild(pEl);
+  }
+
+  for (const dp of drawingParagraphs) {
+    tcNode.appendChild(dp);
+  }
+
+  // Word requires every <w:tc> to have at least one <w:p>
+  if (getDirectChildElements(tcNode, 'p').length === 0) {
+    tcNode.appendChild(xmlDoc.createElementNS(W_NS, 'w:p'));
+  }
+}
+
+function toggleRPrChild(xmlDoc, rPr, localName, enabled) {
+  const existing = getDirectChildElements(rPr, localName);
+  existing.forEach((n) => rPr.removeChild(n));
+  if (enabled) {
+    rPr.appendChild(xmlDoc.createElementNS(W_NS, `w:${localName}`));
+  }
+}
+
+/**
+ * Generates a clean standards-compliant .docx Blob (used when creating fresh files
+ * or when physically sorting by Chapter on export).
+ */
+export async function exportDocToDocxBlob(doc, { includeChapterHeaders = false } = {}) {
   const zip = new JSZip();
 
   zip.file(
@@ -236,7 +491,6 @@ export async function exportDocToDocxBlob(doc) {
 </Relationships>`
   );
 
-  // Split into tables around explicit pageBreakAfter markers so Word renders clean page breaks
   const bodyBlocks = [];
   bodyBlocks.push(`
     <w:p>
@@ -264,6 +518,8 @@ export async function exportDocToDocxBlob(doc) {
   `;
 
   let currentTableRows = [];
+  let lastChapterKey = null;
+
   const flushTable = () => {
     if (currentTableRows.length === 0) return;
     bodyBlocks.push(`<w:tbl>${tblPr}${currentTableRows.join('')}</w:tbl>`);
@@ -272,6 +528,18 @@ export async function exportDocToDocxBlob(doc) {
 
   for (let i = 0; i < doc.rows.length; i++) {
     const r = doc.rows[i];
+
+    if (includeChapterHeaders && r.chapterKey !== lastChapterKey) {
+      flushTable();
+      bodyBlocks.push(`
+        <w:p>
+          <w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+          <w:r><w:rPr><w:b/><w:sz w:val="24"/></w:rPr><w:t xml:space="preserve">${escapeXml(r.chapterLabel || r.section || '')}</w:t></w:r>
+        </w:p>
+      `);
+      lastChapterKey = r.chapterKey;
+    }
+
     const leftXml = htmlToWordParagraphsXml(r.questionHtml || linesToSafeHtml([r.questionWithMarks || r.question]));
     const rightXml = htmlToWordParagraphsXml(r.answerHtml || linesToSafeHtml([r.answerRaw || '']));
 
@@ -305,42 +573,29 @@ export async function exportDocToDocxBlob(doc) {
 
 /* ==================== Internal Helpers ==================== */
 
-function htmlToWordParagraphsXml(html) {
+function parseHtmlIntoStructuredRuns(html) {
   const div = document.createElement('div');
   div.innerHTML = html || '';
-
   const paragraphs = [];
   let currentRuns = [];
 
-  const flushParagraph = () => {
-    if (currentRuns.length === 0) {
-      paragraphs.push('<w:p/>');
-    } else {
-      paragraphs.push(`<w:p>${currentRuns.join('')}</w:p>`);
+  const flush = () => {
+    if (currentRuns.length > 0) {
+      paragraphs.push(currentRuns);
+      currentRuns = [];
     }
-    currentRuns = [];
   };
 
   const walk = (node, fmt) => {
     if (node.nodeType === 3) {
-      const txt = node.nodeValue || '';
-      if (!txt) return;
-      const rPrParts = [];
-      if (fmt.b) rPrParts.push('<w:b/>');
-      if (fmt.i) rPrParts.push('<w:i/>');
-      if (fmt.u) rPrParts.push('<w:u w:val="single"/>');
-      if (fmt.s) rPrParts.push('<w:strike/>');
-      if (fmt.hl) rPrParts.push('<w:highlight w:val="yellow"/>');
-      const rPr = rPrParts.length ? `<w:rPr>${rPrParts.join('')}</w:rPr>` : '';
-      currentRuns.push(`<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(txt)}</w:t></w:r>`);
+      const text = node.nodeValue || '';
+      if (text) currentRuns.push({ text, ...fmt });
       return;
     }
-
     if (node.nodeType !== 1) return;
     const tag = node.tagName.toLowerCase();
-
     if (tag === 'br') {
-      flushParagraph();
+      flush();
       return;
     }
 
@@ -353,23 +608,35 @@ function htmlToWordParagraphsXml(html) {
     };
 
     const isBlock = tag === 'p' || tag === 'div' || tag === 'li';
-    if (isBlock && currentRuns.length > 0) {
-      flushParagraph();
-    }
-
-    for (const child of node.childNodes) {
-      walk(child, nextFmt);
-    }
-
-    if (isBlock) {
-      flushParagraph();
-    }
+    if (isBlock && currentRuns.length > 0) flush();
+    for (const child of node.childNodes) walk(child, nextFmt);
+    if (isBlock) flush();
   };
 
   walk(div, { b: false, i: false, u: false, s: false, hl: false });
-  if (currentRuns.length > 0) flushParagraph();
+  flush();
+  return paragraphs.length > 0 ? paragraphs : [[{ text: '', b: false, i: false, u: false, s: false, hl: false }]];
+}
 
-  return paragraphs.length > 0 ? paragraphs.join('') : '<w:p/>';
+function htmlToWordParagraphsXml(html) {
+  const paragraphs = parseHtmlIntoStructuredRuns(html);
+  return paragraphs
+    .map((runs) => {
+      const runsXml = runs
+        .filter((r) => r.text)
+        .map((r) => {
+          const rPr = [];
+          if (r.b) rPr.push('<w:b/>');
+          if (r.i) rPr.push('<w:i/>');
+          if (r.u) rPr.push('<w:u w:val="single"/>');
+          if (r.s) rPr.push('<w:strike/>');
+          if (r.hl) rPr.push('<w:highlight w:val="yellow"/>');
+          return `<w:r>${rPr.length ? `<w:rPr>${rPr.join('')}</w:rPr>` : ''}<w:t xml:space="preserve">${escapeXml(r.text)}</w:t></w:r>`;
+        })
+        .join('');
+      return runsXml ? `<w:p>${runsXml}</w:p>` : '<w:p/>';
+    })
+    .join('');
 }
 
 function htmlToLines(html) {
@@ -451,9 +718,7 @@ function extractParagraphHtml(pNode) {
       return;
     }
 
-    for (let i = 0; i < node.childNodes.length; i++) {
-      walk(node.childNodes[i]);
-    }
+    for (let i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]);
   };
   walk(pNode);
   return out;
@@ -506,6 +771,7 @@ function parseParagraphPairs(paragraphs, sectionTitle) {
         buildDocRow({
           id: `row-${rows.length + 1}-${hashStr(currentQ.text.slice(0, 40) + rows.length)}`,
           index: rows.length + 1,
+          originalOrder: rows.length,
           section: sectionTitle,
           questionRaw: currentQ.text,
           answerRaw: aLines.join('\n'),
@@ -533,7 +799,12 @@ function parseParagraphPairs(paragraphs, sectionTitle) {
       currentQ = { text: qPrefix[1].trim(), html: escapeHtml(qPrefix[1].trim()), images: item.images };
     } else if (aPrefix) {
       if (!currentQ) currentQ = { text: 'Question', html: 'Question', images: [] };
-      currentA.push({ text: aPrefix[1].trim(), html: escapeHtml(aPrefix[1].trim()), images: item.images, hasPageBreak: item.hasPageBreak });
+      currentA.push({
+        text: aPrefix[1].trim(),
+        html: escapeHtml(aPrefix[1].trim()),
+        images: item.images,
+        hasPageBreak: item.hasPageBreak,
+      });
     } else if (t.includes('?') || t.includes('？')) {
       if (currentQ && currentA.length > 0) flush();
       if (!currentQ) currentQ = item;
@@ -550,6 +821,7 @@ function parseParagraphPairs(paragraphs, sectionTitle) {
         buildDocRow({
           id: `row-${rows.length + 1}-${hashStr(paragraphs[i].text.slice(0, 32) + i)}`,
           index: rows.length + 1,
+          originalOrder: rows.length,
           section: sectionTitle,
           questionRaw: paragraphs[i].text,
           answerRaw: paragraphs[i + 1].text,
@@ -585,6 +857,7 @@ function checkIsHeading(pNode, text) {
     const val = pStyles[0].getAttributeNS(W_NS, 'val') || pStyles[0].getAttribute('w:val') || '';
     if (/heading|title|subtitle/i.test(val)) return true;
   }
+  if (/^(?:Chapter|Ch\.?)\s*\d+/i.test(text) && text.length < 120) return true;
   const runs = pNode.getElementsByTagNameNS(W_NS, 'r');
   if (runs.length > 0 && text.length < 110) {
     let allBold = true;
