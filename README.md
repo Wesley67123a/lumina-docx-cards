@@ -1,31 +1,30 @@
-# Lumina Docx Cards (`lumina-docx-cards`)
+# Lumina Spatial Studio (`lumina-docx-cards`)
 
-一個結合 **擬態設計 (Neumorphism)**、**背景高斯模糊 (Backdrop Blur)**、**半透明界面 (Translucent UI)**、**懸浮式儀表盤 (Floating Dashboard)**、**微交互動畫 (Micro-interactions)** 與 **連續曲率圓角 (Continuous Curvature Squircles)** 的 `.docx` 雙欄閃卡學習工作台。
+融合 **VisionOS 空間毛玻璃 UI**、**Samsung Galaxy S9 動態絲綢光波壁紙**、**可調強調色與連續曲率圓角**、**卡片大小與位置自由拖曳保存**、**Google Drive `flashcard` 資料夾雙向同步** 與 **Docs 原檔閱讀/編輯器** 的 `.docx` 同步問答閃卡平台。
 
-## 核心特色
+## 線上使用
+- **GitHub Pages**：https://wesley67123a.github.io/lumina-docx-cards/
 
-- **直接讀取 `.docx` 問答筆記**：純瀏覽器端解析 OpenXML (`word/document.xml`)，支援：
-  - **雙欄問答表格**（如 HKDSE 筆記左欄問題 + 出處 `*OCR / *Oxford`、右欄答案與給分點 `(1)`）
-  - **段落式 Q&A**（`Q: ... / A: ...` 或 `問：... / 答：...`）
-  - **內嵌圖片提取**：若 `.docx` 題目或答案內含圖表亦可自動顯示
-- **問題與答案同時並排顯示 (Simultaneous Q&A Flashcards)**：左欄採用擬態凸起卡片呈現題目與配分，右欄採用擬態內凹槽 (Inset Well) 呈現逐條給分標準，點擊單一給分點即可微交互核對，全數勾選自動標記「已掌握」。
-- **雙檢視模式**：
-  - **雙欄總覽 (Stream View)**：一覽整份章節所有問答閃卡
-  - **專注單卡 (Focus Stage)**：單張並排問答搭配底部懸浮控制列與鍵盤 `←` / `→` 切換
-- **視覺與工藝細節**：
-  - `backdrop-filter: blur(28px) saturate(175%)` 多層次毛玻璃半透明面板
-  - 雙光源柔和擬態凸起與內凹陰影（支援淺色珍珠霧白 / 深色冰川岩灰雙主題切換）
-  - `corner-shape: superellipse(...)` 連續曲率平滑超橢圓圓角 (Squircle)
+## 核心功能一覽
 
-## 本地開發與啟動
+1. **VisionOS 空間毛玻璃介面 & Samsung Galaxy S9 動態壁紙**
+   - 頂部懸浮功能列（狀態列 + 發光球體搜尋列 + Day 天數控制器）、左側懸浮圓角圖示側欄、底部懸浮藥丸導覽列與重度高斯模糊 (`backdrop-filter: blur(34px)`) 主視窗。
+   - 內建 60fps HTML5 Canvas **Galaxy S9 Infinity 動態絲綢光波壁紙**（`S9 Silk` / `S9 Midnight` / `S9 Pearl`），即時跟隨強調色與滑鼠視差流動。
+2. **即時外觀客製化**
+   - **強調色 (Accent Color)**：多款預設色票與完整自訂色盤，即時連動強調卡片、Day 標籤、原檔打勾狀態與 S9 動態壁紙色系。
+   - **連續曲率圓角 (Continuous Curvature Squircle)**：即時滑桿調整圓角半徑 (`12px–44px`) 與超橢圓曲率平滑指數 (`corner-shape: superellipse(n)`)。
+3. **卡片大小、位置自由調整並保存**
+   - 支援 **Overview 空間 Bento 卡片**（拖曳排序 + 拖曳右下角調整欄寬與高度）與 **Flashcards 閃卡**（雙欄流 / 專注單卡 / 自由畫布 X,Y 任意擺放與個別縮放，並可調整 Q/A 欄寬比例與字體大小）。
+   - 點擊「保存佈局」即持久化至本地與 Google Drive。
+4. **Docs 原檔閱讀、編輯與 Day 天數閃卡收錄**
+   - 原汁原味呈現 `.docx` 雙欄表格與 `Page break` 分頁線，支援深色/淺色紙張切換與富文本編輯（**B** / *I* / <u>U</u> / <s>S</s> / 螢光重點 / 清單 / 新增題目列 / 匯出更新後 `.docx`）。
+   - 看完題目後點擊 **`＋ 加入 Flashcard (Day X)`**，自動記錄加入天數並於原檔該列顯示 **`✓ 已加入 · Day X`** 徽章與強調色側邊標記，亦可由閃卡一鍵跳回原檔定位。
+5. **Google Drive (`flashcard` 資料夾) 雙向同步**
+   - 支援 **OAuth 2.0 直連** 與 **1 分鐘 Google Apps Script 橋接**兩種方式，自動於 Google Drive 建立 `flashcard` 資料夾，直接讀取/覆寫 `.docx` 原檔並同步所有閃卡進度、Day 紀錄與卡片佈局。
+
+## 本地開發
 
 ```bash
 npm install
 npm run dev
-```
-
-建置靜態網頁版本：
-
-```bash
-npm run build
 ```
