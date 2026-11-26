@@ -321,6 +321,76 @@ function init() {
   startLiveClock();
   bindEvents();
   renderAll();
+
+  // Auto-connect to Google Drive (flashcard folder) and load the user's .docx on startup
+  autoConnectDriveAndLoad();
+}
+
+async function autoConnectDriveAndLoad() {
+  if (!driveClient.isConnected()) return;
+
+  state.driveSyncStatus = 'syncing';
+  renderDocsSyncStatus();
+
+  try {
+    await driveClient.ensureFlashcardFolder();
+    const [files, cloudState] = await Promise.all([
+      driveClient.listDocuments(false),
+      driveClient.loadWorkspaceState().catch(() => null),
+    ]);
+
+    state.driveFiles = files || [];
+
+    // Restore cloud flashcards / Day progress / appearance if saved previously
+    if (cloudState) {
+      if (cloudState.flashcardsMap) state.flashcardsMap = cloudState.flashcardsMap;
+      if (cloudState.currentDay) state.currentDay = cloudState.currentDay;
+      if (cloudState.appearance) {
+        state.appearance = { ...DEFAULT_APPEARANCE, ...cloudState.appearance };
+        applyAppearance();
+      }
+    }
+
+    // Automatically download & open the .docx placed inside Google Drive / flashcard
+    if (state.driveFiles.length > 0) {
+      const targetFile =
+        state.driveFiles.find((f) => f.id === state.doc.driveFileId) || state.driveFiles[0];
+      showToast(`☁ 正在自動讀取 Google Drive / flashcard：${targetFile.name}...`);
+      const buf = await driveClient.downloadDocxArrayBuffer(targetFile.id, targetFile.mimeType);
+      const parsed = await parseDocxDocument(buf, targetFile.name);
+
+      if (parsed.rows.length > 0) {
+        rawDocxBuffer = parsed.rawBuffer;
+        state.doc = {
+          title: parsed.title,
+          fileName: parsed.fileName,
+          rows: parsed.rows,
+          driveFileId: targetFile.id,
+        };
+        state.driveSyncStatus = 'synced';
+        state.driveSyncTime = new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        persistLocal();
+        renderAll();
+        const chCount = getChaptersSummary().length;
+        showToast(
+          `✓ 已自動載入 ${targetFile.name}（共 ${parsed.rows.length} 題 · ${chCount} 個 Chapter）`
+        );
+        return;
+      }
+    }
+
+    state.driveSyncStatus = 'synced';
+    state.driveSyncTime = '已連線';
+    renderAll();
+  } catch (err) {
+    console.warn('Auto Drive connect error:', err);
+    state.driveSyncStatus = 'error';
+    renderDocsSyncStatus();
+    showToast(`自動連線 Google Drive 失敗：${err.message}`);
+  }
 }
 
 /* ==========================================================================

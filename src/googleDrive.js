@@ -14,11 +14,19 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 const GDOC_MIME = 'application/vnd.google-apps.document';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
+export const DEFAULT_APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbzpvmaDX1Q_lihjeqxEaSiKhfUbTruKIKGrlcCZ9rd61J7W7YX0jL2aI8LKMmSjEe8/exec';
+
 export class GoogleDriveClient {
   constructor() {
-    this.mode = localStorage.getItem('lumina-drive-mode') || 'oauth'; // 'oauth' | 'apps-script'
-    this.clientId = localStorage.getItem('lumina-gdrive-client-id') || '';
-    this.appsScriptUrl = localStorage.getItem('lumina-apps-script-url') || '';
+    const savedMode = localStorage.getItem('lumina-drive-mode');
+    const savedClientId = localStorage.getItem('lumina-gdrive-client-id') || '';
+    const savedScriptUrl = localStorage.getItem('lumina-apps-script-url') || '';
+
+    this.clientId = savedClientId;
+    this.appsScriptUrl = savedScriptUrl || DEFAULT_APPS_SCRIPT_URL;
+    // Default to apps-script bridge automatically unless user explicitly configured OAuth with a Client ID
+    this.mode = savedMode === 'oauth' && savedClientId ? 'oauth' : 'apps-script';
     this.accessToken = sessionStorage.getItem('lumina-gdrive-token') || '';
     this.tokenExpiry = Number(sessionStorage.getItem('lumina-gdrive-token-exp') || '0');
     this.folderId = localStorage.getItem('lumina-gdrive-folder-id') || '';
@@ -348,6 +356,7 @@ export class GoogleDriveClient {
     }
     const res = await fetch(this.appsScriptUrl, {
       method: 'POST',
+      redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
